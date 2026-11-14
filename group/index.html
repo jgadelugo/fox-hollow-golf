@@ -136,7 +136,7 @@ const roomLink = () => location.origin + location.pathname + "?r=" + room;
      {t:"s", p, h, v}        score v (or null) for player p on hole h (1-18)
    Every message carries c (sender's ms clock) for tie-breaks; the relay's
    own `time` decides which edit is newest. */
-let S, me, hole = null, es = null, clockSkew = 0, pollTimer = null;
+let S, me, hole = null, holeAuto = true, es = null, clockSkew = 0, pollTimer = null;
 function freshState() { return { players: {}, scores: {}, seen: new Set(), log: [] }; }
 const newer = (prev, k) => !prev || k[0] > prev[0] || (k[0] === prev[0] && k[1] >= prev[1]);
 
@@ -256,7 +256,7 @@ function openRoom(code) {
   ls.get("fhg.log." + room, []).forEach(raw => apply(raw, false));
   S.log = ls.get("fhg.log." + room, []);
   me = ls.get("fhg.me." + room, null);
-  hole = null;
+  hole = null; holeAuto = true;
   const recent = ls.get("fhg.rooms", []).filter(r => r !== room); ls.set("fhg.rooms", [room, ...recent].slice(0, 5));
   render(); connect(); flush();
 }
@@ -280,7 +280,8 @@ function render() {
 }
 
 function drawRound() {
-  if (hole === null) hole = firstOpenHole();
+  // Until this phone's user picks a hole, follow the group (scores may still be arriving).
+  if (hole === null || holeAuto) hole = firstOpenHole();
   const ps = active();
   const meP = me && S.players[me] && !S.players[me].x ? me : null;
   const lb = ps.map(([id, p]) => ({ id, n: p.n, ...totals(id) }))
@@ -363,6 +364,7 @@ let lastHTML = "", lastHole = null;
 document.addEventListener("click", async e => {
   const b = e.target.closest("button"); if (!b || !room) return;
   const d = b.dataset;
+  if (d.hole || d.nav || d.inc || d.dec || d.clear) holeAuto = false;
   if (d.hole) { hole = +d.hole; render(); return; }
   if (d.nav) { hole = Math.min(18, Math.max(1, hole + +d.nav)); render(); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
   if (d.inc || d.dec) {
