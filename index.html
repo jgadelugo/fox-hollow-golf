@@ -184,6 +184,12 @@ select, input[type="text"], input[type="date"] {
 .group.on a { color: var(--accent); font-weight: 600; font-size: 13px; }
 .group.on button { padding: 2px 8px; }
 .warn { color: var(--bad); font-size: 12px; margin-top: 6px; }
+.gread { background: var(--chip); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; }
+.gread p { margin: 0; }
+.gread .putt { font-size: 15px; }
+.gread small { color: var(--muted); font-size: 12px; }
+.ramp { display: inline-block; width: 64px; height: 8px; border-radius: 4px; vertical-align: middle; margin: 0 4px;
+  background: linear-gradient(90deg, #2c7bb6, #abd9e9, #ffffbf, #fdae61, #d7191c); }
 </style>
 </head>
 <body>
@@ -210,6 +216,7 @@ select, input[type="text"], input[type="date"] {
       <button id="viewBtn">All holes</button>
       <button id="styleBtn">Diagram</button>
       <button id="locBtn" title="Add a shot at your current GPS position">📍 Ball is here</button>
+      <button id="greenBtn" title="Zoom in on the green and show its slopes">⛳ Green</button>
     </div>
     <div class="maphole" id="mapHole">
       <button data-act="prev" aria-label="Previous hole">‹</button>
@@ -224,6 +231,7 @@ select, input[type="text"], input[type="date"] {
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.js"></script>
 <script src="course-data.js"></script>
+<script src="green-data.js"></script>
 <script>
 "use strict";
 const COURSE = window.COURSE;
@@ -382,7 +390,7 @@ function newRound() {
 const store = load();
 let round = store.rounds.find(r => r.id === store.cur) || store.rounds[0] || newRound();
 store.cur = round.id;
-let holeNo = 1, view = "hole", mapStyle = "sat";
+let holeNo = 1, view = "hole", mapStyle = "sat", greenMode = false;
 
 function hd(n, create) {
   let d = round.holes[n];
@@ -440,13 +448,13 @@ const map = new maplibregl.Map({
   container: "map",
   style: {
     version: 8,
-    sources: { sat: { type: "raster", tiles: [ESRI], tileSize: 256, maxzoom: 19, attribution: "Imagery © Esri · Course © OpenStreetMap contributors" } },
+    sources: { sat: { type: "raster", tiles: [ESRI], tileSize: 256, maxzoom: 19, attribution: "Imagery © Esri · Course © OpenStreetMap contributors · Green slopes: USGS" } },
     layers: [
       { id: "bg", type: "background", paint: { "background-color": "#2b3a26" } },
       { id: "sat", type: "raster", source: "sat" }
     ]
   },
-  center: HOLES[1].line[0], zoom: 16, maxZoom: 20, minZoom: 13,
+  center: HOLES[1].line[0], zoom: 16, maxZoom: 21, minZoom: 13,
   dragRotate: false, pitchWithRotate: false, attributionControl: { compact: true }
 });
 map.touchZoomRotate.disableRotation();
@@ -483,6 +491,17 @@ function setupLayers() {
   }
   map.addLayer({ id: "holeline", type: "line", source: "course", filter: ["==", ["get", "kind"], "hole"],
     paint: { "line-color": "#ffffff", "line-width": 1.5, "line-dasharray": [2, 2], "line-opacity": 0.5 } });
+  // Green view: height shading (an image layer, added on first use), contour lines and downhill arrows.
+  map.addSource("green-lines", { type: "geojson", data: emptyFC() });
+  map.addLayer({ id: "green-contours", type: "line", source: "green-lines", filter: ["==", ["get", "k"], "contour"],
+    paint: { "line-color": "#ffffff", "line-opacity": 0.55, "line-width": 1 } });
+  // Arrows point downhill; longer = steeper.
+  map.addLayer({ id: "green-arrows-casing", type: "line", source: "green-lines", filter: ["==", ["get", "k"], "arrow"],
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: { "line-color": "#111", "line-opacity": 0.55, "line-width": 4.5 } });
+  map.addLayer({ id: "green-arrows", type: "line", source: "green-lines", filter: ["==", ["get", "k"], "arrow"],
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: { "line-color": "#ffffff", "line-width": 2 } });
   map.addLayer({ id: "shot-casing", type: "line", source: "shots", layout: { "line-cap": "round" },
     paint: { "line-color": "#111", "line-width": 5, "line-opacity": 0.45 } });
   map.addLayer({ id: "shot-line", type: "line", source: "shots", layout: { "line-cap": "round" },
@@ -538,7 +557,7 @@ function placeLabels() {
     labelMarkers.push(m);
   });
   const last = pts[pts.length - 1], pin = pinOf(holeNo);
-  if (hd(holeNo).putts === null && yards(last, pin) > 3) {
+  if (hd(holeNo).putts === null && yards(last, pin) > 3 && !greenMode) {
     const lbl = el("mk-label", Math.round(yards(last, pin)) + " to pin");
     lbl.style.background = "rgba(232,64,47,.85)";
     // Sit above the 30px flag so it stays visible and easy to grab.
@@ -587,6 +606,7 @@ function onGeomChange(done) {
 
 /** Fit the camera so the hole plays bottom-to-top, tee to green. */
 function holeCamera(n, animate) {
+  if (greenMode) return greenCamera(n, animate);
   const h = HOLES[n];
   const a = startOf(n), b = pinOf(n);
   const brg = bearing(h.line[0], h.line[h.line.length - 1]);
@@ -598,6 +618,17 @@ function holeCamera(n, animate) {
       pts.push(...coordsOf(f.geometry));
     }
   });
+  fitTurned(pts, b, brg, 19.5, animate);
+}
+/** Close-up of the green (and any balls on or near it), still turned so you look at it from the fairway. */
+function greenCamera(n, animate) {
+  const h = HOLES[n], gp = greenPoly(n), pin = pinOf(n);
+  const brg = bearing(h.line[0], h.line[h.line.length - 1]);
+  const pts = gp ? coordsOf(gp.f.geometry) : [pin];
+  hd(n).shots.forEach(s => { if (meters(s.to, pin) < 40) pts.push(s.to); });
+  fitTurned([...pts, pin], pin, brg, 21, animate, 6);
+}
+function fitTurned(pts, b, brg, maxZoom, animate, padM = 30) {
   const lat0 = b[1], kx = 111320 * Math.cos(lat0 * D2R), ky = 111132;
   const th = brg * D2R, c = Math.cos(th), s = Math.sin(th);
   let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
@@ -611,8 +642,8 @@ function holeCamera(n, animate) {
   const center = [b[0] + dx / kx, b[1] + dy / ky];
   const box = map.getContainer();
   const w = Math.max(box.clientWidth - 60, 100), hgt = Math.max(box.clientHeight - 130, 100);
-  const mpp = Math.max((u1 - u0 + 30) / w, (v1 - v0 + 30) / hgt);
-  const zoom = Math.min(19.5, Math.log2(78271.517 * Math.cos(lat0 * D2R) / mpp));
+  const mpp = Math.max((u1 - u0 + padM) / w, (v1 - v0 + padM) / hgt);
+  const zoom = Math.min(maxZoom, Math.log2(78271.517 * Math.cos(lat0 * D2R) / mpp));
   const opts = { center, zoom, bearing: brg };
   animate ? map.easeTo({ ...opts, duration: 700 }) : map.jumpTo(opts);
 }
@@ -631,6 +662,160 @@ function styleMap() {
   map.setPaintProperty("holeline", "line-opacity",
     view === "hole" ? ["case", ["==", ["get", "ref"], holeNo], 0.85, 0.2] : 0.45);
   document.getElementById("styleBtn").textContent = dia ? "Satellite" : "Diagram";
+}
+
+/* ---------- green slopes (green-data.js, from USGS lidar) ---------- */
+const GREEN_GRID = n => (window.GREENS && window.GREENS.greens[n]) || null;
+const greenPoly = n => POLYS.find(x => x.k === "green" && x.holes.includes(n)) || null;
+const KX = 111320 * Math.cos(40.617 * D2R), KY = 111132;      // metres per degree here
+/** Ground height (m above the grid's lowest point) at [lon, lat], bilinear between cell centres. */
+function elevAt(g, p) {
+  const fx = Math.max(0, Math.min(g.nx - 1.001, (p[0] - g.w) / g.dx - 0.5));
+  const fy = Math.max(0, Math.min(g.ny - 1.001, (g.n - p[1]) / g.dy - 0.5));
+  const i = Math.floor(fx), j = Math.floor(fy), a = fx - i, b = fy - j, z = (ii, jj) => g.z[jj * g.nx + ii];
+  return ((z(i, j) * (1 - a) + z(i + 1, j) * a) * (1 - b) + (z(i, j + 1) * (1 - a) + z(i + 1, j + 1) * a) * b) / 100;
+}
+/** Rise per metre going east and north at p. */
+function gradAt(g, p) {
+  const h = 0.75, dlon = h / KX, dlat = h / KY;
+  return [(elevAt(g, [p[0] + dlon, p[1]]) - elevAt(g, [p[0] - dlon, p[1]])) / (2 * h),
+          (elevAt(g, [p[0], p[1] + dlat]) - elevAt(g, [p[0], p[1] - dlat])) / (2 * h)];
+}
+const offset = (p, east, north) => [p[0] + east / KX, p[1] + north / KY];
+const greenCache = {};
+/** Everything the green view draws for hole n, worked out once. */
+function greenInfo(n) {
+  if (greenCache[n] !== undefined) return greenCache[n];
+  const g = GREEN_GRID(n), gp = greenPoly(n);
+  if (!g || !gp) return (greenCache[n] = null);
+  const geom = gp.f.geometry, inside = p => inGeom(p, geom);
+  const cellAt = (i, j) => [g.w + (i + 0.5) * g.dx, g.n - (j + 0.5) * g.dy];
+  // Height range and best-fit plane over the cells on the green.
+  let lo = Infinity, hi = -Infinity, sx = 0, sy = 0, sz = 0, sxx = 0, syy = 0, sxy = 0, sxz = 0, syz = 0, cnt = 0;
+  const p0 = cellAt(0, 0);
+  for (let j = 0; j < g.ny; j++) for (let i = 0; i < g.nx; i++) {
+    const p = cellAt(i, j); if (!inside(p)) continue;
+    const z = g.z[j * g.nx + i] / 100, x = (p[0] - p0[0]) * KX, y = (p[1] - p0[1]) * KY;
+    lo = Math.min(lo, z); hi = Math.max(hi, z); cnt++;
+    sx += x; sy += y; sz += z; sxx += x * x; syy += y * y; sxy += x * y; sxz += x * z; syz += y * z;
+  }
+  if (cnt < 6) return (greenCache[n] = null);
+  // Solve the 3x3 normal equations for z = c + gx*x + gy*y (centred to keep it stable).
+  const mx = sx / cnt, my = sy / cnt, mz = sz / cnt;
+  const cxx = sxx / cnt - mx * mx, cyy = syy / cnt - my * my, cxy = sxy / cnt - mx * my;
+  const cxz = sxz / cnt - mx * mz, cyz = syz / cnt - my * mz, det = cxx * cyy - cxy * cxy;
+  const plane = det ? [(cxz * cyy - cyz * cxy) / det, (cyz * cxx - cxz * cxy) / det] : [0, 0];
+
+  // Height shading, drawn on a canvas 4 px per cell and masked to the green outline.
+  const S = 4, cw = g.nx * S, ch = g.ny * S, cv = document.createElement("canvas");
+  cv.width = cw; cv.height = ch;
+  const ctx = cv.getContext("2d"), img = ctx.createImageData(cw, ch);
+  const RAMP = [[44, 123, 182], [171, 217, 233], [255, 255, 191], [253, 174, 97], [215, 25, 28]];
+  const color = t => { t = Math.max(0, Math.min(1, t)) * 4; const k = Math.min(3, Math.floor(t)), f = t - k;
+    return RAMP[k].map((c, q) => c + (RAMP[k + 1][q] - c) * f); };
+  for (let py = 0; py < ch; py++) for (let px = 0; px < cw; px++) {
+    const p = [g.w + (px + 0.5) / S * g.dx, g.n - (py + 0.5) / S * g.dy];
+    if (!inside(p)) continue;
+    const c = color((elevAt(g, p) - lo) / Math.max(hi - lo, 0.05)), o = (py * cw + px) * 4;
+    img.data[o] = c[0]; img.data[o + 1] = c[1]; img.data[o + 2] = c[2]; img.data[o + 3] = 150;
+  }
+  ctx.putImageData(img, 0, 0);
+  const e = g.w + g.nx * g.dx, s = g.n - g.ny * g.dy;
+  const heat = { url: cv.toDataURL(), coordinates: [[g.w, g.n], [e, g.n], [e, s], [g.w, s]] };
+
+  const features = [];
+  // Contour lines (marching squares over cell centres), spaced so a green gets about a dozen.
+  const rangeIn = (hi - lo) / 0.0254;
+  const stepIn = [1, 2, 3, 4, 6, 12].find(v => rangeIn / v <= 12) || 12, step = stepIn * 0.0254;
+  const segs = [];
+  for (let j = 0; j < g.ny - 1; j++) for (let i = 0; i < g.nx - 1; i++) {
+    const c = [cellAt(i, j), cellAt(i + 1, j), cellAt(i + 1, j + 1), cellAt(i, j + 1)];
+    if (!inside([(c[0][0] + c[2][0]) / 2, (c[0][1] + c[2][1]) / 2])) continue;
+    const z = [g.z[j * g.nx + i], g.z[j * g.nx + i + 1], g.z[(j + 1) * g.nx + i + 1], g.z[(j + 1) * g.nx + i]].map(v => v / 100);
+    const zmin = Math.min(...z), zmax = Math.max(...z);
+    for (let L = Math.ceil(zmin / step) * step; L <= zmax; L += step) {
+      const pts = [];
+      for (let k = 0; k < 4; k++) {
+        const a = z[k], b = z[(k + 1) % 4];
+        if ((a < L) !== (b < L)) { const t = (L - a) / (b - a), A = c[k], B = c[(k + 1) % 4]; pts.push([A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t]); }
+      }
+      if (pts.length >= 2) segs.push([pts[0], pts[1]]);
+      if (pts.length === 4) segs.push([pts[2], pts[3]]);
+    }
+  }
+  features.push({ type: "Feature", properties: { k: "contour" }, geometry: { type: "MultiLineString", coordinates: segs } });
+  // Downhill arrows on a 3.5 m grid; longer = steeper.
+  const gap = 3.5, b0 = gp.bb;
+  for (let y = b0[1] + gap / 2 / KY; y < b0[3]; y += gap / KY) for (let x = b0[0] + gap / 2 / KX; x < b0[2]; x += gap / KX) {
+    const p = [x, y]; if (!inside(p)) continue;
+    const gr = gradAt(g, p), sl = Math.hypot(gr[0], gr[1]); if (sl < 0.004) continue;
+    const ux = -gr[0] / sl, uy = -gr[1] / sl, len = Math.min(2.2, 0.7 + sl * 40);
+    const tail = offset(p, -ux * len / 2, -uy * len / 2), tip = offset(p, ux * len / 2, uy * len / 2);
+    const head = ang => { const c = Math.cos(ang), s = Math.sin(ang); return offset(tip, -(ux * c - uy * s) * 0.55, -(ux * s + uy * c) * 0.55); };
+    features.push({ type: "Feature", properties: { k: "arrow" },
+      geometry: { type: "MultiLineString", coordinates: [[tail, tip], [head(0.5), tip, head(-0.5)]] } });
+  }
+  return (greenCache[n] = { g, heat, lines: { type: "FeatureCollection", features }, lo, hi, plane, stepIn });
+}
+
+function drawGreen() {
+  if (!map.getSource("green-lines")) return;
+  const info = view === "hole" && greenMode ? greenInfo(holeNo) : null;
+  map.getSource("green-lines").setData(info ? info.lines : emptyFC());
+  if (info) {
+    const src = map.getSource("green-heat");
+    if (src) src.updateImage(info.heat);
+    else {
+      map.addSource("green-heat", { type: "image", ...info.heat });
+      map.addLayer({ id: "green-heat", type: "raster", source: "green-heat", paint: { "raster-fade-duration": 0, "raster-resampling": "linear" } }, "green-contours");
+    }
+  }
+  if (map.getLayer("green-heat")) map.setLayoutProperty("green-heat", "visibility", info ? "visible" : "none");
+}
+
+const SIDES = ["the back", "the back-right", "the right", "the front-right", "the front", "the front-left", "the left", "the back-left"];
+/** Plain-words read of the green, and of the putt when your ball is on it. */
+function greenRead(n) {
+  const info = greenInfo(n); if (!info) return null;
+  const h = HOLES[n], brg = bearing(h.line[0], h.line[h.line.length - 1]);
+  const [gx, gy] = info.plane, slope = Math.hypot(gx, gy);
+  const downBrg = (Math.atan2(-gx, -gy) * R2D + 360) % 360;
+  const side = SIDES[Math.round(((downBrg - brg + 360) % 360) / 45) % 8];
+  const out = { overall: slope < 0.005 ? "Close to flat overall" : `Slopes down toward ${side}, about ${(slope * 100).toFixed(1)}%`,
+    rangeIn: Math.round((info.hi - info.lo) / 0.0254), stepIn: info.stepIn, putt: null };
+  const d = hd(n), last = d.shots.length ? d.shots[d.shots.length - 1].to : null;
+  if (last && d.putts === null) {
+    const lie = lieAt(last, n);
+    if (lie.k === "green" && lie.own) {
+      const pin = pinOf(n), m = meters(last, pin);
+      if (m > 0.3) {
+        const ux = (pin[0] - last[0]) * KX / m, uy = (pin[1] - last[1]) * KY / m;
+        let sideSum = 0, k = 0;
+        for (let t = 0.05; t < 1; t += 0.1, k++) {
+          const gr = gradAt(info.g, [last[0] + (pin[0] - last[0]) * t, last[1] + (pin[1] - last[1]) * t]);
+          sideSum += -gr[0] * uy + gr[1] * ux;      // downhill slope toward your right as you face the hole
+        }
+        const sideSl = sideSum / k, rise = (elevAt(info.g, pin) - elevAt(info.g, last)) / 0.0254;
+        out.putt = {
+          ft: Math.round(m / 0.3048),
+          rise: Math.abs(rise) < 0.5 ? "about level" : `${Math.round(Math.abs(rise))} in ${rise > 0 ? "uphill" : "downhill"}`,
+          brk: Math.abs(sideSl) < 0.005 ? "fairly straight" : `breaks ${sideSl > 0 ? "left to right" : "right to left"} (side slope ${(Math.abs(sideSl) * 100).toFixed(1)}%)`
+        };
+      }
+    }
+  }
+  return out;
+}
+function greenHTML(n) {
+  const r = greenRead(n);
+  if (!r) return `<div class="gread"><p>No slope data for this green.</p></div>`;
+  return `<div class="gread">
+    ${r.putt ? `<p class="putt"><b>Your putt:</b> ${r.putt.ft} ft · ${r.putt.rise} · ${r.putt.brk}</p>`
+      : `<p class="putt">Tap where your ball is on the green to get a read on the putt.</p>`}
+    <p>${r.overall} · ${r.rangeIn} in from highest to lowest point.</p>
+    <small>Low<span class="ramp"></span>high · arrows point downhill (longer = steeper) · lines every ${r.stepIn} in of height</small>
+    <small>From a USGS lidar survey: good for the main slopes, may miss small breaks. Still read it yourself.</small>
+  </div>`;
 }
 
 /* ---------- interactions ---------- */
@@ -654,7 +839,7 @@ function addShot(p) {
   toast(`Shot ${d.shots.length}: ${dist} yds · ${lie.label}` + (lie.k === "water" ? " — tap +1 if you took a drop" : "") + (lie.own && lie.k === "green" ? " — add your putts" : ""));
 }
 function setView(v) {
-  view = v;
+  view = v; greenMode = false;
   document.getElementById("viewBtn").classList.toggle("on", v === "overview");
   document.getElementById("viewBtn").textContent = v === "overview" ? "Back to hole " + holeNo : "All holes";
   render(true);
@@ -679,6 +864,12 @@ document.getElementById("locBtn").onclick = () => {
     if (meters(p, pinOf(holeNo)) > 3000) { toast("You don't seem to be at Fox Hollow — shot not added"); return; }
     addShot(p);
   }, err => toast("Couldn't get location: " + err.message), { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+};
+document.getElementById("greenBtn").onclick = () => {
+  if (view !== "hole") { toast("Pick a hole first"); return; }
+  if (!greenMode && !greenInfo(holeNo)) { toast("No slope data for this green"); return; }
+  greenMode = !greenMode; render(true);
+  if (greenMode) document.getElementById("panel").scrollTop = 0;
 };
 document.getElementById("mapHole").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
@@ -778,7 +969,8 @@ function renderHolePanel() {
   const onGreen = lastLie && lastLie.k === "green" && lastLie.own;
   let hint;
   if (!rows.length) hint = "Tap the tee box you played from (or drag the <b>T</b>), then tap the map where each shot finished. Drag the flag to today's pin.";
-  else if (onGreen && d.putts === null) hint = "On the green — enter your putts below.";
+  else if (onGreen && d.putts === null) hint = greenMode ? "On the green — enter your putts below."
+    : "On the green — tap <b>⛳ Green</b> on the map to read the putt, then enter your putts below.";
   else if (d.putts !== null) hint = "Hole done. Drag any ball to fix its spot, or use › to go to the next hole.";
   else hint = `Tap where shot ${rows.length + 1} finished. ${Math.round(rows[rows.length - 1].toPin)} yds to the pin.`;
 
@@ -805,6 +997,7 @@ function renderHolePanel() {
       <button data-act="next" aria-label="Next hole">›</button>
     </div>
     <div class="hint">${hint}</div>
+    ${greenMode ? `<div class="section-h">Green slope</div>${greenHTML(n)}` : ""}
     <div class="section-h">Shots</div>
     <ol class="shots">${shotsHTML}</ol>
     <div class="btnrow">
@@ -831,7 +1024,7 @@ function renderHolePanel() {
     ${scorecardHTML()}
     ${totalsHTML()}
     ${saveOk ? "" : '<div class="warn">This browser isn\'t saving rounds (private window?). Use ⋯ → Export before closing.</div>'}
-    <div class="foot">Course map © OpenStreetMap contributors · Imagery © Esri. Yardages are measured on the map, not from the scorecard.</div>`;
+    <div class="foot">Course map © OpenStreetMap contributors · Imagery © Esri · Green slopes from USGS 3DEP lidar. Yardages are measured on the map, not from the scorecard.</div>`;
   bindMeta();
 }
 
@@ -918,12 +1111,14 @@ function renderPanel() {
   view === "hole" ? renderHolePanel() : renderOverviewPanel();
   fillRounds();
   document.getElementById("mapHoleLbl").textContent = view === "hole" ? `Hole ${holeNo} · Par ${HOLES[holeNo].par}` : "All 18 holes";
+  const gb = document.getElementById("greenBtn");
+  gb.classList.toggle("on", greenMode); gb.textContent = greenMode ? "⛳ Back to hole" : "⛳ Green";
 }
 function render(moveCamera, animate = true) {
   renderPanel();
   if (!map.getSource("shots")) return;
   styleMap();
-  drawShotsLayer(); drawMarkers(); placeLabels();
+  drawGreen(); drawShotsLayer(); drawMarkers(); placeLabels();
   if (moveCamera) view === "hole" ? holeCamera(holeNo, animate) : overviewCamera(animate);
 }
 renderPanel();

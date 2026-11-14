@@ -20,6 +20,7 @@ python scripts/serve.py      # http://localhost:8765
    - Pick the club for each shot. Tap **+0** to add penalty strokes (cycles 0/1/2).
    - Enter **Putts** once you're on the green (**Holed out (0)** for chip-ins).
    - On the course, **📍 Ball is here** adds a shot at your phone's GPS position (needs https or localhost).
+   - **⛳ Green** zooms in on the green and shows its slopes: blue is low and red is high, arrows point downhill (longer = steeper), and lines mark every few inches of height. Mark where your ball is on the green to get a putt read: distance, how far uphill or downhill, and which way it breaks. The slopes come from a USGS lidar survey, so treat them as a guide to the main breaks.
 3. **All holes** shows every shot on the whole course, plus round stats: score, putts, fairways hit, greens in regulation, average tee shot and distance per club.
 
 Rounds are saved in this browser only. Use **⋯ → Export rounds** to keep a JSON backup (or to move rounds to your phone), and **Import** to load them back.
@@ -51,6 +52,12 @@ To refresh the course data:
 ```
 sh scripts/fetch_osm.sh          # downloads data/osm_raw.json
 python scripts/build_course.py   # writes course-data.js and data/fox-hollow.geojson (needs shapely)
+```
+
+Green slopes come from the [USGS 3DEP](https://www.usgs.gov/3d-elevation-program) lidar elevation service (1 m, public domain). After rebuilding the course data, refresh them with:
+
+```
+python scripts/build_greens.py   # writes green-data.js (needs numpy, shapely, Pillow)
 ```
 
 `build_course.py` assigns each tee, green and fairway to its hole. Hole 16's green is mapped just outside the club's boundary in OSM, which is why the download uses a bounding box.
