@@ -541,7 +541,8 @@ function placeLabels() {
   if (hd(holeNo).putts === null && yards(last, pin) > 3) {
     const lbl = el("mk-label", Math.round(yards(last, pin)) + " to pin");
     lbl.style.background = "rgba(232,64,47,.85)";
-    labelMarkers.push(new maplibregl.Marker({ element: lbl, offset: [0, -22] }).setLngLat(pin).addTo(map));
+    // Sit above the 30px flag so it stays visible and easy to grab.
+    labelMarkers.push(new maplibregl.Marker({ element: lbl, anchor: "bottom", offset: [0, -32] }).setLngLat(pin).addTo(map));
   }
 }
 
