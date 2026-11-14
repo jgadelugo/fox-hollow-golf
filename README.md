@@ -4,7 +4,9 @@ Plot a round at **Fox Hollow Golf Club** (Branchburg, NJ) shot by shot on a sate
 
 ## Use it
 
-Open `index.html` in a browser (double-click works), or serve the folder:
+**On your phone:** open https://jgadelugo.github.io/fox-hollow-golf/ and add it to your home screen (Safari: Share → Add to Home Screen; Chrome: ⋮ → Add to Home screen). It's served from this repo's `main` branch by GitHub Pages, so pushing a change updates it within a minute or two.
+
+**On your computer:** open `index.html` in a browser (double-click works), or serve the folder:
 
 ```
 python scripts/serve.py      # http://localhost:8765
