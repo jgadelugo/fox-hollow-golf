@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2f6f3e">
+<title>Fox Hollow Group Round</title>
+<style>
+/* Phone-first single column: hole entry on top, leaderboard, then the full card. */
+:root {
+  --bg: #f4f5f1; --panel: #ffffff; --ink: #1d2419; --muted: #646d5f; --line: #dfe3da;
+  --accent: #2f6f3e; --accent-ink: #ffffff; --chip: #eef1ea; --hi: #ffd23f;
+  --under: #c0392b; --over: #2c5aa0; --ok: #2f8f4e; --warn: #b5463c;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121510; --panel: #1a1e17; --ink: #e7ebe2; --muted: #9aa392; --line: #2c3328;
+    --accent: #5fae6f; --accent-ink: #0f140d; --chip: #252b21; --under: #ff7b6b; --over: #7fa8ea;
+    --ok: #6cc685; --warn: #e07a6f; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121510; --panel: #1a1e17; --ink: #e7ebe2; --muted: #9aa392; --line: #2c3328;
+  --accent: #5fae6f; --accent-ink: #0f140d; --chip: #252b21; --under: #ff7b6b; --over: #7fa8ea;
+  --ok: #6cc685; --warn: #e07a6f; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  padding: env(safe-area-inset-top, 0px) max(16px, env(safe-area-inset-right, 0px)) 40px max(16px, env(safe-area-inset-left, 0px));
+  -webkit-tap-highlight-color: transparent;
+}
+button, input { font: inherit; color: inherit; }
+button { background: var(--chip); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; cursor: pointer; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button:disabled { opacity: .5; }
+input[type="text"] { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; width: 100%; min-width: 0; }
+.wrap { max-width: 560px; margin: 0 auto; }
+header { display: flex; align-items: center; gap: 10px; padding: 12px 0 8px; flex-wrap: wrap; }
+header h1 { font-size: 18px; margin: 0; margin-right: auto; }
+header h1 small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
+.code { font: 700 15px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .12em; background: var(--panel); border: 1px dashed var(--line); padding: 8px 10px; border-radius: 10px; }
+.status { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.dot.live { background: var(--ok); }
+.dot.off { background: var(--warn); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-top: 12px; }
+.card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+.row { display: flex; gap: 8px; align-items: center; }
+.muted { color: var(--muted); font-size: 13px; }
+.holes { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+.holes::-webkit-scrollbar { display: none; }
+.holes button { flex: 0 0 auto; min-width: 42px; padding: 6px 0; display: grid; justify-items: center; line-height: 1.1; }
+.holes button small { font-size: 10px; color: var(--muted); }
+.holes button.cur { background: var(--hi); border-color: var(--hi); color: #1d2419; }
+.holes button.cur small { color: #1d2419; }
+.holes button.done:not(.cur) { border-color: var(--accent); }
+.holehead { display: flex; align-items: baseline; justify-content: space-between; margin: 12px 0 6px; }
+.holehead b { font-size: 24px; }
+.entry { display: grid; gap: 8px; }
+.entry .p { display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
+.entry .p:first-child { border-top: 0; }
+.entry .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.entry .name small { font-weight: 400; color: var(--muted); }
+.entry .step { width: 46px; height: 46px; font-size: 22px; padding: 0; border-radius: 12px; }
+.entry .val { width: 44px; text-align: center; font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; background: none; border: 0; padding: 0; }
+.entry .val.empty { color: var(--muted); font-weight: 400; }
+.entry .val.under { color: var(--under); }
+.entry .val.over { color: var(--over); }
+.navrow { display: flex; gap: 8px; margin-top: 10px; }
+.navrow button { flex: 1; }
+.lb { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.lb td, .lb th { padding: 8px 4px; border-bottom: 1px solid var(--line); text-align: right; }
+.lb th { font-size: 12px; color: var(--muted); font-weight: 500; }
+.lb td:nth-child(2), .lb th:nth-child(2) { text-align: left; }
+.lb td:first-child { width: 26px; text-align: left; color: var(--muted); }
+.lb .tp { font-weight: 700; font-size: 17px; }
+.lb tr.me td { background: color-mix(in srgb, var(--hi) 22%, transparent); }
+.under { color: var(--under); } .over { color: var(--over); }
+.scroll { overflow-x: auto; }
+.sc { border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; min-width: 100%; }
+.sc th, .sc td { border: 1px solid var(--line); text-align: center; padding: 4px 0; min-width: 26px; }
+.sc th:first-child, .sc td:first-child { text-align: left; padding: 4px 6px; min-width: 72px; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; position: sticky; left: 0; background: var(--panel); }
+.sc .tot { font-weight: 700; background: var(--chip); }
+.sc .s { display: inline-grid; place-items: center; width: 20px; height: 20px; }
+.s.birdie { border: 1.5px solid var(--under); border-radius: 50%; color: var(--under); }
+.s.eagle { border: 1.5px solid var(--under); border-radius: 50%; box-shadow: 0 0 0 2px var(--panel), 0 0 0 3.5px var(--under); color: var(--under); }
+.s.bogey { border: 1.5px solid var(--over); color: var(--over); }
+.s.double { border: 1.5px solid var(--over); box-shadow: 0 0 0 2px var(--panel), 0 0 0 3.5px var(--over); color: var(--over); }
+.start { display: grid; gap: 14px; margin-top: 24px; }
+.start h2 { text-transform: none; letter-spacing: 0; font-size: 17px; color: var(--ink); }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: #1d2419; color: #fff; padding: 9px 14px; border-radius: 10px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; text-align: center; }
+.toast.show { opacity: 1; }
+.foot { color: var(--muted); font-size: 12px; margin-top: 18px; }
+.foot a { color: inherit; }
+.x { width: 34px; height: 34px; padding: 0; color: var(--warn); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+"use strict";
+/* Fox Hollow (Branchburg, NJ) — par and map yardage per hole, from OpenStreetMap. */
+const PARS = [4,3,5,3,4,5,4,4,3,5,4,3,4,3,5,4,4,3];
+const YDS  = [321,175,507,177,413,502,353,317,172,549,338,194,431,208,540,341,350,170];
+const RELAY = "https://ntfy.sh/";          // free public message relay; keeps messages 12 h
+const TOPIC_PREFIX = "fhgolf-";
+const CODE_CHARS = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+
+/* ---------- small helpers ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const ls = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+};
+const rid = n => Array.from(crypto.getRandomValues(new Uint8Array(n)), b => CODE_CHARS[b % CODE_CHARS.length]).join("");
+const fmt = d => d === 0 ? "E" : d > 0 ? "+" + d : String(d);
+let toastT;
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 2200); }
+
+/* ---------- room ---------- */
+const url = new URL(location.href);
+let room = (url.searchParams.get("r") || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+const roomLink = () => location.origin + location.pathname + "?r=" + room;
+
+/* ---------- shared state, rebuilt from relay messages ----------
+   Message kinds (JSON in the relay message body):
+     {t:"p", id, n}          add / rename a player
+     {t:"x", id}             remove a player
+     {t:"s", p, h, v}        score v (or null) for player p on hole h (1-18)
+   Every message carries c (sender's ms clock) for tie-breaks; the relay's
+   own `time` decides which edit is newest. */
+let S, me, hole = null, es = null, clockSkew = 0, pollTimer = null;
+function freshState() { return { players: {}, scores: {}, seen: new Set(), log: [] }; }
+const newer = (prev, k) => !prev || k[0] > prev[0] || (k[0] === prev[0] && k[1] >= prev[1]);
+
+function apply(raw, persist = true) {
+  if (!raw || raw.event && raw.event !== "message") return false;
+  if (S.seen.has(raw.id)) return false;
+  S.seen.add(raw.id);
+  let m; try { m = JSON.parse(raw.message); } catch (e) { return false; }
+  if (!m || typeof m !== "object") return false;
+  if (!String(raw.id).startsWith("local-")) clockSkew = raw.time - Date.now() / 1000;
+  const k = [raw.time || 0, +m.c || 0];
+  if (m.t === "p" && m.id) {
+    const pl = S.players[m.id];
+    if (!pl || newer(pl.k, k)) S.players[m.id] = { n: String(m.n || "Player").slice(0, 20), k, x: pl ? pl.x : false, joined: pl ? pl.joined : k };
+  } else if (m.t === "x" && m.id) {
+    const pl = S.players[m.id] || { n: "Player", k: [0, 0], joined: k };
+    if (newer(pl.xk, k)) { pl.x = true; pl.xk = k; S.players[m.id] = pl; }
+  } else if (m.t === "s" && m.p && m.h >= 1 && m.h <= 18) {
+    const key = m.p + ":" + m.h, prev = S.scores[key];
+    const v = m.v === null ? null : Math.max(1, Math.min(15, Math.round(+m.v)));
+    if (!prev || newer(prev.k, k)) S.scores[key] = { v, k };
+  } else return false;
+  if (persist && !String(raw.id).startsWith("local-")) { S.log.push({ id: raw.id, time: raw.time, message: raw.message }); saveLog(); }
+  return true;
+}
+let saveT;
+function saveLog() { clearTimeout(saveT); saveT = setTimeout(() => ls.set("fhg.log." + room, S.log.slice(-2000)), 300); }
+
+/* ---------- sending (with an outbox for patchy signal) ---------- */
+function outbox() { return ls.get("fhg.out." + room, []); }
+function send(m) {
+  m.c = Date.now();
+  const body = JSON.stringify(m);
+  // Show it immediately; the relay's echo has the same content.
+  apply({ id: "local-" + m.c + Math.random(), time: Math.floor(Date.now() / 1000 + clockSkew), message: body }, false);
+  ls.set("fhg.out." + room, [...outbox(), body]);
+  render(); flush();
+}
+let flushing = false;
+async function flush() {
+  if (flushing) return; flushing = true;
+  try {
+    let q = outbox();
+    while (q.length) {
+      const r = await fetch(RELAY + TOPIC_PREFIX + room, { method: "POST", body: q[0] });
+      if (!r.ok) throw new Error("relay " + r.status);
+      q = outbox().slice(1); ls.set("fhg.out." + room, q);
+    }
+  } catch (e) { setTimeout(flush, 8000); }
+  finally { flushing = false; renderStatus(); }
+}
+
+/* ---------- receiving ---------- */
+function connect() {
+  if (es) es.close();
+  es = new EventSource(RELAY + TOPIC_PREFIX + room + "/sse?since=all");
+  es.onmessage = e => { let raw; try { raw = JSON.parse(e.data); } catch (x) { return; } if (apply(raw)) render(); };
+  es.onopen = () => { renderStatus(); flush(); };
+  es.onerror = () => renderStatus();
+  // Safety net: re-read the relay's copy now and then, in case the live stream missed something.
+  clearInterval(pollTimer);
+  pollTimer = setInterval(poll, 60000);
+}
+async function poll() {
+  try {
+    const r = await fetch(RELAY + TOPIC_PREFIX + room + "/json?poll=1&since=all");
+    const text = await r.text(); let changed = false;
+    text.split("\n").forEach(line => { if (!line.trim()) return; try { if (apply(JSON.parse(line))) changed = true; } catch (e) {} });
+    if (changed) render();
+  } catch (e) {}
+}
+window.addEventListener("online", () => { flush(); connect(); });
+
+/* ---------- derived numbers ---------- */
+const active = () => Object.entries(S.players).filter(([, p]) => !p.x)
+  .sort((a, b) => (a[1].joined[0] - b[1].joined[0]) || (a[1].joined[1] - b[1].joined[1]));
+const score = (p, h) => { const s = S.scores[p + ":" + h]; return s ? s.v : null; };
+function totals(p) {
+  let tot = 0, par = 0, thru = 0, out = 0, inn = 0;
+  for (let h = 1; h <= 18; h++) { const v = score(p, h); if (v == null) continue; tot += v; par += PARS[h - 1]; thru++; if (h <= 9) out += v; else inn += v; }
+  return { tot, toPar: tot - par, thru, out, inn };
+}
+function firstOpenHole() {
+  const ps = active();
+  for (let h = 1; h <= 18; h++) if (!ps.length || ps.some(([id]) => score(id, h) == null)) return h;
+  return 18;
+}
+const cls = (v, h) => { if (v == null) return ""; const d = v - PARS[h - 1]; return d <= -2 ? "eagle" : d === -1 ? "birdie" : d === 1 ? "bogey" : d >= 2 ? "double" : ""; };
+
+/* ---------- screens ---------- */
+function renderStart() {
+  lastHTML = "";
+  $("#app").innerHTML = `
+    <header><h1>Fox Hollow Group Round<small>Branchburg, NJ · live scorecard for your group</small></h1></header>
+    <div class="start">
+      <div class="card">
+        <h2>Start a round</h2>
+        <p class="muted">You'll get a code and a link to send your group. Everyone who opens it sees the same scorecard, live.</p>
+        <button class="primary" id="startBtn" style="width:100%">Start a new round</button>
+      </div>
+      <div class="card">
+        <h2>Join a round</h2>
+        <div class="row"><input type="text" id="codeIn" placeholder="Code, e.g. K7Q2XM" autocapitalize="characters" autocomplete="off" maxlength="8" aria-label="Round code"><button id="joinBtn">Join</button></div>
+      </div>
+    </div>
+    <p class="foot">Want a shot-by-shot map instead? <a href="../">Fox Hollow shot map</a></p>`;
+  $("#startBtn").onclick = () => openRoom(rid(6));
+  const join = () => { const c = $("#codeIn").value.toUpperCase().replace(/[^A-Z0-9]/g, ""); if (c.length < 4) { toast("Enter the code from your group"); return; } openRoom(c); };
+  $("#joinBtn").onclick = join;
+  $("#codeIn").onkeydown = e => { if (e.key === "Enter") join(); };
+}
+
+function openRoom(code) {
+  room = code;
+  history.replaceState(null, "", "?r=" + room);
+  S = freshState();
+  ls.get("fhg.log." + room, []).forEach(raw => apply(raw, false));
+  S.log = ls.get("fhg.log." + room, []);
+  me = ls.get("fhg.me." + room, null);
+  hole = null;
+  const recent = ls.get("fhg.rooms", []).filter(r => r !== room); ls.set("fhg.rooms", [room, ...recent].slice(0, 5));
+  render(); connect(); flush();
+}
+
+function renderStatus() {
+  const el = $("#status"); if (!el) return;
+  const pending = outbox().length;
+  const live = es && es.readyState === 1;
+  el.innerHTML = `<span class="dot ${live ? "live" : "off"}"></span>${live ? "Live" : navigator.onLine ? "Connecting…" : "Offline"}${pending ? ` · ${pending} waiting to send` : ""}`;
+}
+
+function render() {
+  if (!room) return renderStart();
+  // Scores from friends can arrive while someone is typing: keep their text and cursor.
+  const keep = {};
+  ["nameIn", "addIn"].forEach(id => { const el = document.getElementById(id); if (el) keep[id] = el.value; });
+  const focused = document.activeElement && document.activeElement.id;
+  drawRound();
+  Object.entries(keep).forEach(([id, v]) => { const el = document.getElementById(id); if (el) el.value = v; });
+  if (focused && (focused === "nameIn" || focused === "addIn")) { const el = document.getElementById(focused); if (el) el.focus(); }
+}
+
+function drawRound() {
+  if (hole === null) hole = firstOpenHole();
+  const ps = active();
+  const meP = me && S.players[me] && !S.players[me].x ? me : null;
+  const lb = ps.map(([id, p]) => ({ id, n: p.n, ...totals(id) }))
+    .sort((a, b) => (b.thru > 0) - (a.thru > 0) || a.toPar - b.toPar || b.thru - a.thru || a.n.localeCompare(b.n));
+
+  const holeChips = PARS.map((par, i) => {
+    const h = i + 1, done = ps.length && ps.every(([id]) => score(id, h) != null);
+    return `<button data-hole="${h}" class="${h === hole ? "cur" : ""} ${done ? "done" : ""}" aria-label="Hole ${h}">${h}<small>P${par}</small></button>`;
+  }).join("");
+
+  const entryRows = ps.length ? ps.map(([id, p]) => {
+    const v = score(id, hole), d = v == null ? 0 : v - PARS[hole - 1];
+    return `<div class="p">
+      <div class="name">${esc(p.n)}${id === meP ? " <small>(you)</small>" : ""}</div>
+      <button class="step" data-dec="${id}" aria-label="One less for ${esc(p.n)}">−</button>
+      <button class="val ${v == null ? "empty" : d < 0 ? "under" : d > 0 ? "over" : ""}" data-clear="${id}" title="Tap to clear">${v == null ? "–" : v}</button>
+      <button class="step" data-inc="${id}" aria-label="One more for ${esc(p.n)}">+</button>
+    </div>`;
+  }).join("") : `<p class="muted">No players yet. Add your name above.</p>`;
+
+  const lbRows = lb.map((r, i) => `<tr class="${r.id === meP ? "me" : ""}">
+      <td>${r.thru ? i + 1 : ""}</td><td>${esc(r.n)}</td>
+      <td class="tp ${r.toPar < 0 ? "under" : r.toPar > 0 ? "over" : ""}">${r.thru ? fmt(r.toPar) : "–"}</td>
+      <td>${r.thru ? r.tot : "–"}</td><td>${r.thru === 18 ? "F" : r.thru}</td></tr>`).join("");
+
+  const half = (a, b) => { let s = 0; for (let h = a; h <= b; h++) s += PARS[h - 1]; return s; };
+  const cardHead = `<tr><th>Hole</th>${PARS.map((_, i) => `<th>${i + 1}</th>${i === 8 ? '<th class="tot">Out</th>' : ""}`).join("")}<th class="tot">In</th><th class="tot">Tot</th></tr>
+    <tr><td>Par</td>${PARS.map((p, i) => `<td>${p}</td>${i === 8 ? `<td class="tot">${half(1, 9)}</td>` : ""}`).join("")}<td class="tot">${half(10, 18)}</td><td class="tot">${half(1, 18)}</td></tr>`;
+  const cardRows = ps.map(([id, p]) => {
+    const t = totals(id);
+    return `<tr><td>${esc(p.n)}</td>${PARS.map((_, i) => { const v = score(id, i + 1); return `<td>${v == null ? "" : `<span class="s ${cls(v, i + 1)}">${v}</span>`}</td>${i === 8 ? `<td class="tot">${t.out || ""}</td>` : ""}`; }).join("")}<td class="tot">${t.inn || ""}</td><td class="tot">${t.tot || ""}</td></tr>`;
+  }).join("");
+
+  const html = `
+    <header>
+      <h1>Fox Hollow<small id="status" class="status"></small></h1>
+      <span class="code" title="Round code">${esc(room)}</span>
+      <button id="shareBtn" class="primary">Invite</button>
+    </header>
+    ${meP ? "" : `<div class="card"><h2>Join this round</h2><div class="row">
+        <input type="text" id="nameIn" placeholder="Your name" maxlength="20" autocomplete="given-name" aria-label="Your name" value="${esc(ls.get("fhg.name", ""))}">
+        <button class="primary" id="meBtn">Join</button></div>
+        <p class="muted" style="margin:8px 0 0">Just watching? You can skip this and still follow the leaderboard.</p></div>`}
+    <div class="card">
+      <div class="holes" id="holes">${holeChips}</div>
+      <div class="holehead"><b>Hole ${hole}</b><span class="muted">Par ${PARS[hole - 1]} · ${YDS[hole - 1]} yds</span></div>
+      <div class="entry">${entryRows}</div>
+      <div class="navrow">
+        <button data-nav="-1" ${hole === 1 ? "disabled" : ""}>‹ Hole ${Math.max(1, hole - 1)}</button>
+        <button data-nav="1" class="primary" ${hole === 18 ? "disabled" : ""}>Hole ${Math.min(18, hole + 1)} ›</button>
+      </div>
+      <p class="muted" style="margin:10px 0 0">Tap + to start at par, − for a birdie. Tap a score to clear it. Anyone in the round can enter scores for anyone.</p>
+    </div>
+    <div class="card">
+      <h2>Leaderboard</h2>
+      ${ps.length ? `<table class="lb"><tr><th></th><th>Player</th><th>To par</th><th>Total</th><th>Thru</th></tr>${lbRows}</table>` : '<p class="muted">Scores will show here.</p>'}
+    </div>
+    <div class="card">
+      <h2>Scorecard</h2>
+      ${ps.length ? `<div class="scroll"><table class="sc">${cardHead}${cardRows}</table></div>` : '<p class="muted">Nobody has joined yet.</p>'}
+    </div>
+    <div class="card">
+      <h2>Players</h2>
+      <div class="row"><input type="text" id="addIn" placeholder="Add someone without a phone" maxlength="20" aria-label="Player name"><button id="addBtn">Add</button></div>
+      ${ps.length ? `<div style="display:grid;gap:6px;margin-top:10px">${ps.map(([id, p]) => `<div class="row"><span style="flex:1">${esc(p.n)}${id === meP ? ' <span class="muted">(you)</span>' : ""}</span><button class="x" data-rm="${id}" aria-label="Remove ${esc(p.n)}">✕</button></div>`).join("")}</div>` : ""}
+    </div>
+    <p class="foot">Scores go through ntfy.sh, a free public relay, and are kept there for 12 hours. Anyone with the code can see and edit this round, so don't put anything private in it. Your phone keeps its own copy.
+      <br><a href="./">Start or join another round</a> · <a href="../">Fox Hollow shot map</a></p>`;
+  // Echoes of our own taps change nothing on screen: skip those redraws so a tap in progress isn't lost.
+  if (html === lastHTML) { renderStatus(); return; }
+  const holeChanged = lastHole !== hole;
+  lastHTML = html; lastHole = hole;
+  $("#app").innerHTML = html;
+  renderStatus();
+  if (holeChanged) { const cur = document.querySelector("#holes .cur"); if (cur) cur.scrollIntoView({ block: "nearest", inline: "center" }); }
+}
+let lastHTML = "", lastHole = null;
+
+/* ---------- interactions ---------- */
+document.addEventListener("click", async e => {
+  const b = e.target.closest("button"); if (!b || !room) return;
+  const d = b.dataset;
+  if (d.hole) { hole = +d.hole; render(); return; }
+  if (d.nav) { hole = Math.min(18, Math.max(1, hole + +d.nav)); render(); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+  if (d.inc || d.dec) {
+    const p = d.inc || d.dec, v = score(p, hole), par = PARS[hole - 1];
+    const nv = v == null ? (d.inc ? par : par - 1) : Math.max(1, Math.min(15, v + (d.inc ? 1 : -1)));
+    if (nv !== v) send({ t: "s", p, h: hole, v: nv });
+    return;
+  }
+  if (d.clear) { if (score(d.clear, hole) != null) send({ t: "s", p: d.clear, h: hole, v: null }); return; }
+  if (d.rm) { const p = S.players[d.rm]; if (p && confirm(`Remove ${p.n} from this round?`)) send({ t: "x", id: d.rm }); return; }
+  if (b.id === "meBtn") {
+    const n = $("#nameIn").value.trim(); if (!n) { toast("Type your name first"); return; }
+    ls.set("fhg.name", n); me = rid(8); ls.set("fhg.me." + room, me);
+    $("#nameIn").value = "";
+    send({ t: "p", id: me, n }); toast("You're in. Send the invite to your group.");
+    return;
+  }
+  if (b.id === "addBtn") {
+    const n = $("#addIn").value.trim(); if (!n) { toast("Type a name first"); return; }
+    $("#addIn").value = "";
+    send({ t: "p", id: rid(8), n }); return;
+  }
+  if (b.id === "shareBtn") {
+    const link = roomLink(), text = `Join our Fox Hollow round (code ${room})`;
+    if (navigator.share) { try { await navigator.share({ title: "Fox Hollow Group Round", text, url: link }); return; } catch (err) { if (err && err.name === "AbortError") return; } }
+    try { await navigator.clipboard.writeText(link); toast("Link copied: " + link); } catch (err) { prompt("Copy this link for your group:", link); }
+  }
+});
+document.addEventListener("keydown", e => {
+  if (e.key !== "Enter") return;
+  if (e.target.id === "nameIn") $("#meBtn").click();
+  if (e.target.id === "addIn") $("#addBtn").click();
+});
+
+if (room) openRoom(room); else renderStart();
+</script>
+</body>
+</html>

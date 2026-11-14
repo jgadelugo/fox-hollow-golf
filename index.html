@@ -187,6 +187,7 @@ select, input[type="text"], input[type="date"] {
     <details class="menu" id="menu">
       <summary aria-label="More">⋯</summary>
       <div>
+        <button data-menu="group">Group scorecard (live) ↗</button>
         <button data-menu="export">Export rounds (JSON)</button>
         <button data-menu="import">Import rounds…</button>
         <button data-menu="delete" class="danger">Delete this round</button>
@@ -630,6 +631,7 @@ document.getElementById("menu").addEventListener("click", e => {
   const b = e.target.closest("[data-menu]"); if (!b) return;
   document.getElementById("menu").open = false;
   const act = b.dataset.menu;
+  if (act === "group") { location.href = "group/"; return; }
   if (act === "export") {
     const blob = new Blob([JSON.stringify({ course: COURSE.name, exported: new Date().toISOString(), rounds: store.rounds }, null, 1)], { type: "application/json" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `fox-hollow-rounds-${today()}.json`;

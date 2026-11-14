@@ -28,6 +28,16 @@ How stats are counted:
 - **Fairway hit**: on a par 4 or 5, the tee shot finished on this hole's fairway with no penalty.
 - **Green in regulation**: strokes before putting (including penalties) ≤ par − 2, and you putted at least once.
 
+## Group scorecard (for friends)
+
+https://jgadelugo.github.io/fox-hollow-golf/group/ is a live scorecard for your group.
+
+1. One person taps **Start a new round** and then **Invite**, which shares a link like `…/group/?r=K7Q2XM`.
+2. Everyone opens the link and types their name. Use **Add** for someone without a phone.
+3. Anyone can enter anyone's score. Tap **+** to start at par and **−** for a birdie. Everyone sees the leaderboard and scorecard update live.
+
+Scores travel through [ntfy.sh](https://ntfy.sh), a free public message relay, under a topic named `fhgolf-<code>`. ntfy.sh keeps them for 12 hours, so latecomers catch up. Each phone also keeps its own copy and holds unsent scores until it has signal again. Anyone with the code can see and edit the round, so keep it to names and scores.
+
 ## Course data
 
 Hole lines, par, tees, greens, fairways, bunkers and water come from OpenStreetMap (© OpenStreetMap contributors, ODbL). Satellite imagery is from Esri. Yardages are measured on the map and won't match the scorecard exactly. OSM lists the course as par 70 (35/35); check that against the real scorecard.
