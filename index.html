@@ -175,6 +175,14 @@ select, input[type="text"], input[type="date"] {
 .clubs td:first-child, .clubs th:first-child { text-align: left; }
 .clubs th { color: var(--muted); font-weight: 500; font-size: 12px; }
 .foot { color: var(--muted); font-size: 11px; margin-top: 20px; }
+.group { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; text-decoration: none; color: inherit;
+  background: var(--chip); border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; margin-bottom: 6px; }
+.group > div { flex: 1; min-width: 0; display: grid; }
+.group span { color: var(--muted); font-size: 12px; }
+.group .go { color: var(--accent); font-weight: 600; font-size: 13px; }
+.group.on { border-color: var(--accent); }
+.group.on a { color: var(--accent); font-weight: 600; font-size: 13px; }
+.group.on button { padding: 2px 8px; }
 .warn { color: var(--bad); font-size: 12px; margin-top: 6px; }
 </style>
 </head>
@@ -295,7 +303,76 @@ function load() {
 }
 function save() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); saveOk = true; } catch (e) { saveOk = false; }
+  syncGroup();
 }
+
+/* ---------- link to a live group round (group/index.html) ----------
+   Both pages live on the same site, so they share browser storage: the group
+   page records which rounds you joined (fhg.rooms / fhg.meta / fhg.me.<code>).
+   Finished hole scores are added to that round's outbox (fhg.out.<code>) in the
+   group page's own message format and sent through the same relay. */
+const RELAY = "https://ntfy.sh/", G_PREFIX = "fhgolf-";
+const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+function groupCandidates() {
+  const meta = lsGet("fhg.meta", {});
+  return lsGet("fhg.rooms", []).map(room => ({ room, me: lsGet("fhg.me." + room, null), m: meta[room] }))
+    .filter(c => c.me && c.m && Date.now() - c.m.at < 12 * 3600e3);   // the relay keeps rounds 12 h
+}
+let groupT;
+function syncGroup() {
+  let r;
+  try { r = round; } catch (e) { return; }    // save() also runs during startup, before `round` exists
+  if (!r || !r.group) return;
+  clearTimeout(groupT); groupT = setTimeout(() => pushGroup(r), 2500);   // batch quick edits, like the group page
+}
+function pushGroup(r) {
+  const g = r.group; if (!g) return;
+  g.sent = g.sent || {};
+  const prevRound = round; round = r;          // holeStats reads the current round
+  const s = [];
+  for (let n = 1; n <= 18; n++) {
+    const st = holeStats(n);
+    const v = st && st.finished ? st.score : null;
+    if (v !== (g.sent[n] ?? null)) { s.push([g.me, n, v]); g.sent[n] = v; }
+  }
+  round = prevRound;
+  if (!s.length) return;
+  const key = "fhg.out." + g.room;
+  lsSet(key, [...lsGet(key, []), JSON.stringify({ t: "b", s, c: Date.now() })]);
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) {}
+  flushGroup(g.room);
+}
+let gFlushing = false;
+async function flushGroup(room) {
+  if (gFlushing) return; gFlushing = true;
+  const key = "fhg.out." + room;
+  try {
+    let q = lsGet(key, []);
+    while (q.length) {
+      const res = await fetch(RELAY + G_PREFIX + room, { method: "POST", body: q[0], keepalive: true });
+      if (!res.ok) throw new Error("relay " + res.status);
+      q = lsGet(key, []).slice(1); lsSet(key, q);
+    }
+  } catch (e) { setTimeout(() => flushGroup(room), 15000); }
+  finally { gFlushing = false; if (typeof renderPanel === "function") renderPanel(); }
+}
+function groupHTML() {
+  const g = round.group;
+  if (g) {
+    const waiting = lsGet("fhg.out." + g.room, []).length;
+    const posted = Object.values(g.sent || {}).filter(v => v != null).length;
+    return `<div class="group on">
+      <div><b>Group round ${esc(g.room)}</b><span>Finished holes post as ${esc(g.name)} · ${waiting ? waiting + " waiting to send" : posted + " posted"}</span></div>
+      <a href="group/?r=${encodeURIComponent(g.room)}">Leaderboard</a>
+      <button data-act="unlink" aria-label="Stop posting to group round ${esc(g.room)}">✕</button></div>`;
+  }
+  const c = groupCandidates();
+  if (c.length) return c.map(x => `<button class="group" data-link="${esc(x.room)}">
+      <div><b>Post my scores to group round ${esc(x.room)}</b><span>${esc(x.m.names || "No players yet")}</span></div><span class="go">Link</span></button>`).join("");
+  return `<a class="group" href="group/"><div><b>Playing with friends?</b><span>Start or join a live group scorecard, then come back here: your finished holes post to it automatically.</span></div><span class="go">↗</span></a>`;
+}
+window.addEventListener("online", () => { if (round && round.group) flushGroup(round.group.room); });
 const today = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 function newRound() {
@@ -747,6 +824,8 @@ function renderHolePanel() {
       <div class="stat"><b>${mark(st ? st.gir : null)}</b><span>Green in reg</span></div>
       <div class="stat"><b>${st ? st.pen : "—"}</b><span>Penalties</span></div>
     </div>
+    <div class="section-h">Group round</div>
+    ${groupHTML()}
     <div class="section-h">Scorecard</div>
     ${scorecardHTML()}
     ${totalsHTML()}
@@ -781,6 +860,8 @@ function renderOverviewPanel() {
       <div class="stat"><b>${s.girN ? Math.round(100 * s.girHit / s.girN) + "%" : "—"}</b><span>GIR ${s.girN ? s.girHit + "/" + s.girN : ""}</span></div>
       <div class="stat"><b>${avg(s.tee) ?? "—"}</b><span>Avg tee shot (yds)</span></div>
     </div>
+    <div class="section-h">Group round</div>
+    ${groupHTML()}
     <div class="section-h">Scorecard</div>
     ${scorecardHTML()}
     <div class="section-h">Distance by club</div>
@@ -803,6 +884,13 @@ panel.addEventListener("click", e => {
   const t = e.target.closest("button, [data-hole]"); if (!t) return;
   const d = hd(holeNo, true);
   if (t.dataset.hole) { holeNo = +t.dataset.hole; setView("hole"); return; }
+  if (t.dataset.link) {
+    const c = groupCandidates().find(x => x.room === t.dataset.link); if (!c) return;
+    round.group = { room: c.room, me: c.me, name: lsGet("fhg.name", "you"), sent: {} };
+    save(); pushGroup(round); renderPanel();
+    toast("Linked. Finished holes now post to the group leaderboard.");
+    return;
+  }
   if (t.dataset.pen != null) { const s = d.shots[+t.dataset.pen]; s.pen = ((s.pen || 0) + 1) % 3; }
   else if (t.dataset.del != null) { d.shots.splice(+t.dataset.del, 1); }
   else switch (t.dataset.act) {
@@ -814,6 +902,7 @@ panel.addEventListener("click", e => {
     case "putt-": d.putts = d.putts === null ? 0 : Math.max(0, d.putts - 1); break;
     case "holed": d.putts = 0; break;
     case "puttclear": d.putts = null; break;
+    case "unlink": delete round.group; save(); renderPanel(); toast("Unlinked. Scores already posted stay on the leaderboard."); return;
     default: return;
   }
   save(); render();

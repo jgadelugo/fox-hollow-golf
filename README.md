@@ -36,6 +36,8 @@ https://jgadelugo.github.io/fox-hollow-golf/group/ is a live scorecard for your 
 2. Everyone opens the link and types their name. Use **Add** for someone without a phone.
 3. Anyone can enter anyone's score. Tap **+** to start at par and **−** for a birdie. Everyone sees the leaderboard and scorecard update live.
 
+**Using the shot map too?** After you join a group round on your phone, open the shot map and tap **Post my scores to group round …** under *Group round*. From then on, every hole you finish in the shot map (shots + penalties + putts) posts to the group leaderboard by itself, and corrections post too. Tap ✕ to stop.
+
 Scores travel through [ntfy.sh](https://ntfy.sh), a free public message relay, under a topic named `fhgolf-<code>`. ntfy.sh keeps them for 12 hours, so latecomers catch up. Each phone also keeps its own copy and holds unsent scores until it has signal again. Anyone with the code can see and edit the round, so keep it to names and scores.
 
 ntfy.sh allows 250 messages a day per network (IP address). The page saves up score taps for 2.5 seconds and sends them as one message, which works out to about one message per hole, so a full round uses roughly 20–40. If the limit is hit anyway, the page says so and keeps the scores on that phone until they can be sent.
