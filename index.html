@@ -207,6 +207,11 @@ select, input[type="text"], input[type="date"] {
 .gread p { margin: 0; }
 .gread .putt { font-size: 15px; }
 .gread small { color: var(--muted); font-size: 12px; }
+.gread .caddy { font-size: 15px; background: var(--panel); border-radius: 8px; padding: 8px 10px; border-left: 4px solid var(--shot); }
+.gread .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.gread .seg button small { color: inherit; opacity: .7; font-size: 12px; }
+.gread button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.mk-ball.temp { background: #fff; }
 .ramp { display: inline-block; width: 64px; height: 8px; border-radius: 4px; vertical-align: middle; margin: 0 4px;
   background: linear-gradient(90deg, #2c7bb6, #abd9e9, #ffffbf, #fdae61, #d7191c); }
 </style>
@@ -533,6 +538,16 @@ function setupLayers() {
     paint: { "line-color": ["case", ["get", "pen"], "#ff6b6b", "#ffd23f"], "line-width": 2.5 } });
   map.addLayer({ id: "shot-dots", type: "circle", source: "dots",
     paint: { "circle-radius": 3.5, "circle-color": "#ffd23f", "circle-stroke-color": "#111", "circle-stroke-width": 1 } });
+  // Caddy read: where to aim (thin white line + dot) and how the putt should roll (yellow).
+  map.addSource("putt", { type: "geojson", data: emptyFC() });
+  map.addLayer({ id: "putt-aim", type: "line", source: "putt", filter: ["==", ["get", "k"], "aim"],
+    paint: { "line-color": "#ffffff", "line-width": 1.5, "line-dasharray": [2, 2], "line-opacity": 0.9 } });
+  map.addLayer({ id: "putt-casing", type: "line", source: "putt", filter: ["==", ["get", "k"], "path"], layout: { "line-cap": "round", "line-join": "round" },
+    paint: { "line-color": "#111", "line-width": 6, "line-opacity": 0.5 } });
+  map.addLayer({ id: "putt-path", type: "line", source: "putt", filter: ["==", ["get", "k"], "path"], layout: { "line-cap": "round", "line-join": "round" },
+    paint: { "line-color": "#ffd23f", "line-width": 3 } });
+  map.addLayer({ id: "putt-aimpt", type: "circle", source: "putt", filter: ["==", ["get", "k"], "aimpt"],
+    paint: { "circle-radius": 6, "circle-color": "#ffffff", "circle-stroke-color": "#111", "circle-stroke-width": 2 } });
   render(true, false); // jump (not animate) on first load so nothing can interrupt it
 }
 
@@ -628,10 +643,15 @@ function drawMarkers() {
     const e = hitArea(el("mk-ball" + (s.pen ? " pen" : "") + (i === d.shots.length - 1 ? " last" : ""), String(i + 1)));
     addMarker(e, s.to, { tap: through, drag: (ll, done) => { hd(n, true).shots[i].to = ll; onGeomChange(done); } });
   });
+  // The spot you're reading a putt from (not a shot): white, and draggable to try other spots.
+  if (greenMode && readSpot) {
+    const e = hitArea(el("mk-ball temp", "?")); e.title = "Reading from here (not a shot)";
+    addMarker(e, readSpot, { tap: through, drag: (ll, done) => { readSpot = ll; if (done) { renderPanel(); drawPutt(); } } });
+  }
 }
 function onGeomChange(done) {
   drawShotsLayer(); placeLabels();
-  if (done) { save(); renderPanel(); }
+  if (done) { save(); renderPanel(); drawPutt(); }
 }
 
 /** Fit the camera so the hole plays bottom-to-top, tee to green. */
@@ -788,17 +808,19 @@ function greenInfo(n) {
   return (greenCache[n] = { g, heat, lines: { type: "FeatureCollection", features }, lo, hi, plane, stepIn });
 }
 
+let heatFor = null;    // which hole's shading the image layer holds
 function drawGreen() {
   if (!map.getSource("green-lines")) return;
   const info = view === "hole" && greenMode ? greenInfo(holeNo) : null;
   map.getSource("green-lines").setData(info ? info.lines : emptyFC());
   if (info) {
     const src = map.getSource("green-heat");
-    if (src) src.updateImage(info.heat);
+    if (src) { if (heatFor !== holeNo) src.updateImage(info.heat); }   // only when the hole changes: a reload mid-load aborts
     else {
       map.addSource("green-heat", { type: "image", ...info.heat });
       map.addLayer({ id: "green-heat", type: "raster", source: "green-heat", paint: { "raster-fade-duration": 0, "raster-resampling": "linear" } }, "green-contours");
     }
+    heatFor = holeNo;
   }
   if (map.getLayer("green-heat")) map.setLayoutProperty("green-heat", "visibility", info ? "visible" : "none");
 }
@@ -813,38 +835,146 @@ function greenRead(n) {
   const side = SIDES[Math.round(((downBrg - brg + 360) % 360) / 45) % 8];
   const out = { overall: slope < 0.005 ? "Close to flat overall" : `Slopes down toward ${side}, about ${(slope * 100).toFixed(1)}%`,
     rangeIn: Math.round((info.hi - info.lo) / 0.0254), stepIn: info.stepIn, putt: null };
-  const d = hd(n), last = d.shots.length ? d.shots[d.shots.length - 1].to : null;
-  if (last && d.putts === null) {
-    const lie = lieAt(last, n);
-    if (lie.k === "green" && lie.own) {
-      const pin = pinOf(n), m = meters(last, pin);
-      if (m > 0.3) {
-        const ux = (pin[0] - last[0]) * KX / m, uy = (pin[1] - last[1]) * KY / m;
-        let sideSum = 0, k = 0;
-        for (let t = 0.05; t < 1; t += 0.1, k++) {
-          const gr = gradAt(info.g, [last[0] + (pin[0] - last[0]) * t, last[1] + (pin[1] - last[1]) * t]);
-          sideSum += -gr[0] * uy + gr[1] * ux;      // downhill slope toward your right as you face the hole
-        }
-        const sideSl = sideSum / k, rise = (elevAt(info.g, pin) - elevAt(info.g, last)) / 0.0254;
-        out.putt = {
-          ft: Math.round(m / 0.3048),
-          rise: Math.abs(rise) < 0.5 ? "about level" : `${Math.round(Math.abs(rise))} in ${rise > 0 ? "uphill" : "downhill"}`,
-          brk: Math.abs(sideSl) < 0.005 ? "fairly straight" : `breaks ${sideSl > 0 ? "left to right" : "right to left"} (side slope ${(Math.abs(sideSl) * 100).toFixed(1)}%)`
-        };
-      }
+  const b = puttBall(n);
+  if (b) {
+    const pin = pinOf(n), m = meters(b.p, pin);
+    if (!inGeom(b.p, greenPoly(n).f.geometry)) out.putt = { off: true, temp: b.temp };
+    else if (m > 0.3) {
+      const rise = (elevAt(info.g, pin) - elevAt(info.g, b.p)) / 0.0254;
+      out.putt = {
+        temp: b.temp, ft: Math.round(m / 0.3048),
+        rise: Math.abs(rise) < 0.5 ? "about level" : `${Math.round(Math.abs(rise))} in ${rise > 0 ? "uphill" : "downhill"}`,
+        caddy: caddyRead(n, b.p)
+      };
     }
   }
   return out;
 }
+
+/* ---------- caddy read: roll a ball over the green's surface ----------
+   A rolling ball slows by a constant amount set by green speed (a stimpmeter
+   ball leaves the ramp at 1.83 m/s and rolls S feet on flat ground), and slopes
+   push it downhill at 5/7 g × slope (the 5/7 is because it rolls, not slides).
+   The read finds the start line and speed that take the ball through the middle
+   of the hole and, if it missed, 1.5 ft past: a firm "die it in" pace. */
+const STIMPS = [[8, "Slow"], [10, "Medium"], [12, "Fast"]];
+let stimp = lsGet("foxhollow.stimp", 10);
+let readMode = false, readSpot = null;    // read from a spot you tap, without recording a shot
+const PAST = 0.4572, CUP_IN = 4.25, G57 = 9.81 * 5 / 7;
+
+/** Where the read starts: a spot you marked to read from, else your ball if it's on this green and the hole isn't finished. */
+function puttBall(n) {
+  if (readSpot) return { p: readSpot, temp: true };
+  const d = hd(n); if (!d.shots.length || d.putts !== null) return null;
+  const last = d.shots[d.shots.length - 1].to, lie = lieAt(last, n);
+  return lie.k === "green" && lie.own ? { p: last, temp: false } : null;
+}
+
+/** Roll a putt from `ball` at angle th (radians, 0 = east, counter-clockwise) and speed v (m/s).
+    Works in metres east/north of the ball. Returns how it passed the hole (hx, hy). */
+function rollPutt(g, ball, hx, hy, th, v, decel, keepPath) {
+  let x = 0, y = 0, vx = v * Math.cos(th), vy = v * Math.sin(th), len = 0;
+  let best = Infinity, bx = 0, by = 0, dx = vx, dy = vy, lenAtBest = 0;
+  const dt = 0.01, path = keepPath ? [[0, 0]] : null;
+  for (let i = 0; i < 4000; i++) {
+    const gr = gradAt(g, offset(ball, x, y)), sp = Math.hypot(vx, vy);
+    let ax = -G57 * gr[0], ay = -G57 * gr[1];
+    if (sp < 0.02) {
+      if (Math.hypot(ax, ay) <= decel) break;          // slope can't move it: it has stopped
+    } else { ax -= decel * vx / sp; ay -= decel * vy / sp; }
+    let nvx = vx + ax * dt, nvy = vy + ay * dt;
+    if (sp >= 0.02 && nvx * vx + nvy * vy < 0) { nvx = 0; nvy = 0; }   // friction stops it, never turns it round
+    const sx = (vx + nvx) / 2 * dt, sy = (vy + nvy) / 2 * dt, sl = Math.hypot(sx, sy);
+    if (sl > 0) {   // closest pass to the hole along this little step
+      const t = Math.max(0, Math.min(1, ((hx - x) * sx + (hy - y) * sy) / (sl * sl)));
+      const cx = x + sx * t, cy = y + sy * t, dist = Math.hypot(hx - cx, hy - cy);
+      if (dist < best) { best = dist; bx = cx; by = cy; dx = sx; dy = sy; lenAtBest = len + sl * t; }
+    }
+    x += sx; y += sy; len += sl; vx = nvx; vy = nvy;
+    if (path && i % 3 === 0) path.push([x, y]);
+  }
+  if (path) path.push([x, y]);
+  const dn = Math.hypot(dx, dy) || 1;
+  return {
+    side: (dx * (hy - by) - dy * (hx - bx)) / dn,          // > 0: the hole is left of where the ball went
+    past: len - lenAtBest > 0.01 ? len - lenAtBest : -best, // how far it rolled past the hole (negative = short)
+    path
+  };
+}
+
+const caddyCache = {};
+/** Aim and pace for a putt from p to the hole on hole n, or {why} when it can't be read. */
+function caddyRead(n, p) {
+  const pin = pinOf(n), key = [n, p, pin, stimp].join("|");
+  if (caddyCache[key]) return caddyCache[key];
+  const g = GREEN_GRID(n), decel = 1.83 ** 2 / (2 * stimp * 0.3048);
+  const hx = (pin[0] - p[0]) * KX, hy = (pin[1] - p[1]) * KY, D = Math.hypot(hx, hy), th0 = Math.atan2(hy, hx);
+  if (D > 25) return (caddyCache[key] = { why: "Long putt: too far to read the line well. Focus on pace." });
+  // For a given speed, find the line that sends the ball over the middle of the hole.
+  const lineFor = v => {
+    let lo = th0 - 1.3, hi = th0 + 1.3;
+    if (rollPutt(g, p, hx, hy, lo, v, decel).side < 0 || rollPutt(g, p, hx, hy, hi, v, decel).side > 0) return null;
+    for (let k = 0; k < 24; k++) { const mid = (lo + hi) / 2; rollPutt(g, p, hx, hy, mid, v, decel).side > 0 ? lo = mid : hi = mid; }
+    return (lo + hi) / 2;
+  };
+  const pastAt = v => { const th = lineFor(v); return th === null ? { th, past: -Infinity } : { th, past: rollPutt(g, p, hx, hy, th, v, decel).past }; };
+  // Then find the speed that finishes 1.5 ft past.
+  let vlo = 0.05, vhi = Math.max(1, 2.5 * Math.sqrt(Math.max(0.05, 2 * decel * (D + PAST) + 2 * G57 * (elevAt(g, pin) - elevAt(g, p)))));
+  if (pastAt(vlo).past > PAST) return (caddyCache[key] = { why: "Downhill and quick: the slope won't let it stop near the hole. Just get it rolling and close." });
+  if (pastAt(vhi).past < PAST) return (caddyCache[key] = { why: "Couldn't find a line for this one. Trust your own read." });
+  for (let k = 0; k < 20; k++) { const mid = (vlo + vhi) / 2; pastAt(mid).past < PAST ? vlo = mid : vhi = mid; }
+  const v = (vlo + vhi) / 2, { th } = pastAt(v);
+  if (th === null) return (caddyCache[key] = { why: "Couldn't find a line for this one. Trust your own read." });
+  const run = rollPutt(g, p, hx, hy, th, v, decel, true);
+  const offIn = D * Math.sin(th - th0) / 0.0254;                       // > 0: aim left of the hole
+  const side = offIn > 0 ? "left" : "right", a = Math.abs(offIn);
+  let aim;
+  if (a < 1) aim = "Aim at the middle of the hole";
+  else if (a <= 2.1) aim = `Aim inside the ${side} edge`;
+  else if (a <= 3.5) aim = `Aim at the ${side} edge`;
+  else if (a <= 36) {
+    const cups = Math.max(0.5, Math.round((a - CUP_IN / 2) / CUP_IN * 2) / 2);
+    aim = `Aim ${String(cups).replace(".5", "½")} cup${cups > 1 ? "s" : ""} outside the ${side} edge (${Math.round(a)} in ${side} of the hole)`;
+  } else aim = `Aim about ${(a / 12).toFixed(1).replace(".0", "")} ft ${side} of the hole`;
+  const playsFt = Math.round((v * v / (2 * decel) - PAST) / 0.3048), ft = Math.round(D / 0.3048);
+  return (caddyCache[key] = {
+    aim, breaks: a < 1 ? "straight" : offIn > 0 ? "left to right" : "right to left",
+    playsFt, ft, path: run.path.map(([x, y]) => offset(p, x, y)), aimPt: offset(p, D * Math.cos(th), D * Math.sin(th))
+  });
+}
+
+function drawPutt() {
+  if (!map.getSource("putt")) return;
+  const r = view === "hole" && greenMode ? greenRead(holeNo) : null, c = r && r.putt && r.putt.caddy;
+  const b = puttBall(holeNo), fc = emptyFC();
+  if (c && c.path && b) {
+    fc.features.push({ type: "Feature", properties: { k: "aim" }, geometry: { type: "LineString", coordinates: [b.p, c.aimPt] } });
+    fc.features.push({ type: "Feature", properties: { k: "path" }, geometry: { type: "LineString", coordinates: c.path } });
+    fc.features.push({ type: "Feature", properties: { k: "aimpt" }, geometry: { type: "Point", coordinates: c.aimPt } });
+  }
+  map.getSource("putt").setData(fc);
+}
+
 function greenHTML(n) {
   const r = greenRead(n);
   if (!r) return `<div class="gread"><p>No slope data for this green.</p></div>`;
+  const P = r.putt, c = P && P.caddy;
+  let read;
+  if (!P) read = `<p class="putt">Tap where your ball is on the green, or use the button below, for a caddy read.</p>`;
+  else if (P.off) read = `<p class="putt">That spot is off the green. Tap a spot on the green to read the putt.</p>`;
+  else read = `<p class="putt"><b>${P.temp ? "From your spot" : "Your putt"}:</b> ${P.ft} ft · ${P.rise}</p>
+    ${c && c.aim ? `<p class="caddy"><b>${c.aim}.</b><br>Pace: hit it like a ${c.playsFt} ft putt on flat ground${
+      Math.abs(c.playsFt - c.ft) >= Math.max(2, c.ft * 0.1) ? ` (it plays ${c.playsFt > c.ft ? "longer" : "shorter"} than ${c.ft} ft)` : ""}.
+      ${c.breaks === "straight" ? "Holds its line." : `Breaks ${c.breaks}.`}<br><small>Yellow line: how it should roll · white dot: aim point</small></p>`
+      : c ? `<p class="caddy">${c.why}</p>` : ""}`;
   return `<div class="gread">
-    ${r.putt ? `<p class="putt"><b>Your putt:</b> ${r.putt.ft} ft · ${r.putt.rise} · ${r.putt.brk}</p>`
-      : `<p class="putt">Tap where your ball is on the green to get a read on the putt.</p>`}
+    ${read}
+    <div class="seg" role="group" aria-label="Green speed">${STIMPS.map(([s, l]) =>
+      `<button data-stimp="${s}" class="${s === stimp ? "on" : ""}">${l} <small>${s}</small></button>`).join("")}</div>
+    <button data-act="readspot" class="${readMode ? "on" : ""}">${readMode ? "Done reading — taps add shots again" : "Read from a spot (doesn't add a shot)"}</button>
     <p>${r.overall} · ${r.rangeIn} in from highest to lowest point.</p>
     <small>Low<span class="ramp"></span>high · arrows point downhill (longer = steeper) · lines every ${r.stepIn} in of height</small>
-    <small>From a USGS lidar survey: good for the main slopes, may miss small breaks. Still read it yourself.</small>
+    <small>From a USGS lidar survey and a guessed green speed: good for the main slopes, may miss small breaks. Still read it yourself.</small>
   </div>`;
 }
 
@@ -855,6 +985,7 @@ map.on("click", e => {
 });
 function mapTap(p) {
   if (view !== "hole") return;
+  if (greenMode && readMode) { setReadSpot(p); return; }
   const d = hd(holeNo, true);
   // Before the first shot, tapping one of this hole's tee boxes sets where you teed off.
   if (!d.shots.length && hits(p, "tee").some(x => x.holes.includes(holeNo))) {
@@ -870,8 +1001,13 @@ function addShot(p) {
   const dist = Math.round(yards(pointsOf(holeNo).slice(-2)[0], p));
   toast(`Shot ${d.shots.length}: ${dist} yds · ${lie.label}` + (lie.k === "water" ? " — tap +1 if you took a drop" : "") + (lie.own && lie.k === "green" ? " — add your putts" : ""));
 }
+function setReadSpot(p) {
+  readSpot = p; render();
+  toast(inGeom(p, greenPoly(holeNo).f.geometry) ? "Reading from here (not added as a shot)" : "That's off the green: tap a spot on the green");
+}
+function leaveGreen() { greenMode = false; readMode = false; readSpot = null; }
 function setView(v) {
-  view = v; greenMode = false;
+  view = v; leaveGreen();
   document.getElementById("viewBtn").classList.toggle("on", v === "overview");
   document.getElementById("viewBtn").textContent = v === "overview" ? "Back to hole " + holeNo : "All holes";
   document.getElementById("panel").scrollTop = 0;
@@ -905,13 +1041,14 @@ document.getElementById("locBtn").onclick = () => {
   navigator.geolocation.getCurrentPosition(pos => {
     const p = [pos.coords.longitude, pos.coords.latitude];
     if (meters(p, pinOf(holeNo)) > 3000) { toast("You don't seem to be at Fox Hollow — shot not added"); return; }
-    addShot(p);
+    if (greenMode && readMode) setReadSpot(p); else addShot(p);
   }, err => toast("Couldn't get location: " + err.message), { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
 };
 document.getElementById("greenBtn").onclick = () => {
   if (view !== "hole") { toast("Pick a hole first"); return; }
   if (!greenMode && !greenInfo(holeNo)) { toast("No slope data for this green"); return; }
-  greenMode = !greenMode; render(true);
+  if (greenMode) leaveGreen(); else greenMode = true;
+  render(true);
   if (greenMode) document.getElementById("panel").scrollTop = 0;
 };
 document.getElementById("mapHole").addEventListener("click", e => {
@@ -1048,7 +1185,7 @@ function renderHolePanel() {
       <div><h2>Hole ${n}</h2><p>Par ${h.par} · ${fromTee} yds from your tee${h.handicap ? " · HCP " + h.handicap : ""}</p></div>
       <button data-act="next" aria-label="Next hole">›</button>
     </div>
-    <div class="hint">${hint}</div>
+    ${greenMode ? "" : `<div class="hint">${hint}</div>`}
     ${greenMode ? `<div class="section-h">Green slope</div>${greenHTML(n)}` : ""}
     <div class="section-h">Putts</div>
     <div class="putts${onGreen && d.putts === null ? " ask" : ""}" role="group" aria-label="Putts on hole ${n}">${puttBtns}</div>
@@ -1132,6 +1269,12 @@ panel.addEventListener("click", e => {
     toast(`Shot ${i + 1} deleted`, { label: "Undo", fn: () => { r.holes[n] = JSON.parse(before); save(); render(); } });
     return;
   }
+  if (t.dataset.stimp) { stimp = +t.dataset.stimp; lsSet("foxhollow.stimp", stimp); renderPanel(); drawPutt(); return; }
+  if (t.dataset.act === "readspot") {
+    readMode = !readMode; if (!readMode) readSpot = null;
+    render(); if (readMode) toast("Tap the green where your ball is. Nothing is recorded.");
+    return;
+  }
   if (t.dataset.pen != null) { const s = d.shots[+t.dataset.pen]; s.pen = ((s.pen || 0) + 1) % 3; }
   else if (t.dataset.putt != null) {
     d.putts = t.dataset.putt === "more" ? Math.min(9, Math.max(5, (d.putts || 0) + 1)) : +t.dataset.putt;
@@ -1165,7 +1308,7 @@ function render(moveCamera, animate = true) {
   renderPanel();
   if (!map.getSource("shots")) return;
   styleMap();
-  drawGreen(); drawShotsLayer(); drawMarkers(); placeLabels();
+  drawGreen(); drawPutt(); drawShotsLayer(); drawMarkers(); placeLabels();
   if (moveCamera) view === "hole" ? holeCamera(holeNo, animate) : overviewCamera(animate);
 }
 renderPanel();
