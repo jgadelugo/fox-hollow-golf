@@ -50,6 +50,7 @@ button {
   padding: 6px 10px; cursor: pointer; min-height: 40px;   /* big enough to hit outdoors, one-handed */
 }
 button:hover { border-color: var(--muted); }
+button:disabled { opacity: .45; cursor: default; border-color: var(--line); }
 button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 select, input[type="text"], input[type="date"] {
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; min-width: 0; min-height: 40px;
@@ -108,6 +109,8 @@ select, input[type="text"], input[type="date"] {
 .mapctl { position: absolute; top: 10px; left: max(10px, env(safe-area-inset-left, 0px)); z-index: 5; display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(100% - 20px); }
 .mapctl button { background: rgba(20,24,18,.78); color: #fff; border-color: rgba(255,255,255,.18); backdrop-filter: blur(4px); min-height: 44px; }
 .mapctl button.on { background: #ffd23f; color: #1d2419; border-color: #ffd23f; }
+/* "Ball is here" and "Green" act on one hole. With all 18 showing they'd only wrap the row over the course on a small phone. */
+.mapctl.all #locBtn, .mapctl.all #greenBtn { display: none; }
 .maphole { position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; gap: 2px; align-items: center;
   background: rgba(20,24,18,.78); color: #fff; padding: 2px; border-radius: 999px; backdrop-filter: blur(4px); }
 .maphole button { background: transparent; color: #fff; border: 0; padding: 0; min-width: 44px; min-height: 44px; font-size: 20px; border-radius: 999px; }
@@ -355,13 +358,25 @@ function groupCandidates() {
   return lsGet("fhg.rooms", []).map(room => ({ room, me: lsGet("fhg.me." + room, null), m: meta[room] }))
     .filter(c => c.me && c.m && Date.now() - c.m.at < 12 * 3600e3);   // the relay keeps rounds 12 h
 }
-let groupT;
+let groupT, groupDue = null;                  // groupDue: the round whose scores are waiting out the batching pause
 function syncGroup() {
   let r;
   try { r = round; } catch (e) { return; }    // save() also runs during startup, before `round` exists
   if (!r || !r.group) return;
-  clearTimeout(groupT); groupT = setTimeout(() => pushGroup(r), 2500);   // batch quick edits, like the group page
+  if (groupDue && groupDue !== r) pushGroup(groupDue);   // switched rounds mid-pause: the first round's scores still go
+  clearTimeout(groupT); groupDue = r;
+  groupT = setTimeout(sendGroupNow, 2500);    // batch quick edits, like the group page
 }
+/** Post the scores that are waiting out the pause, now. */
+function sendGroupNow() {
+  clearTimeout(groupT);
+  const r = groupDue; groupDue = null;
+  if (r) pushGroup(r);
+}
+// Leaving inside the pause (the Leaderboard link right after the last putt, a locked phone, a closed tab)
+// must not leave the hole unposted: nothing would send it until the next edit on this page.
+document.addEventListener("visibilitychange", () => { if (document.hidden) sendGroupNow(); });
+window.addEventListener("pagehide", sendGroupNow);
 function pushGroup(r) {
   const g = r.group; if (!g) return;
   g.sent = g.sent || {};
@@ -418,7 +433,10 @@ function newRound() {
 const store = load();
 let round = store.rounds.find(r => r.id === store.cur) || store.rounds[0] || newRound();
 store.cur = round.id;
-let holeNo = 1, view = "hole", mapStyle = "sat", greenMode = false;
+// Each round remembers the hole it was last on (round.hole), so a reload mid-round
+// (phones drop the page while locked) comes back to that hole, not to hole 1.
+const resumeHole = () => HOLES[round.hole] ? round.hole : 1;
+let holeNo = resumeHole(), view = "hole", mapStyle = "sat", greenMode = false;
 
 function hd(n, create) {
   let d = round.holes[n];
@@ -485,11 +503,21 @@ const map = new maplibregl.Map({
       { id: "sat", type: "raster", source: "sat" }
     ]
   },
-  center: HOLES[1].line[0], zoom: 16, maxZoom: 21, minZoom: 13,
+  center: HOLES[1].line[0], zoom: 16, maxZoom: 21, minZoom: 12,   // 12: the whole course still fits a short phone screen
   dragRotate: false, pitchWithRotate: false, attributionControl: { compact: true }
 });
 map.touchZoomRotate.disableRotation();
 map.keyboard.disableRotation();
+// On a narrow map the attribution opens out across the bottom and folds down to its (i) button only on the
+// first drag. Shots are placed by tapping, so it would sit over the tee and the hole switcher for the whole
+// round: fold it as soon as it has filled in. The (i) button opens it again, and the panel's footer repeats it.
+function foldAttribution() {
+  const a = map.getContainer().querySelector(".maplibregl-ctrl-attrib.maplibregl-compact-show");
+  if (!a) return;                              // not filled in yet
+  map.off("sourcedata", foldAttribution);
+  if (map.getContainer().clientWidth <= 640) a.classList.remove("maplibregl-compact-show");
+}
+map.on("sourcedata", foldAttribution);
 
 const FILL = {
   //            satellite overlay       diagram
@@ -670,7 +698,7 @@ function holeCamera(n, animate) {
       pts.push(...coordsOf(f.geometry));
     }
   });
-  fitTurned(pts, b, brg, 19.5, animate);
+  fitTurned(pts, b, brg, 19.5, animate, 30, 56);   // 56 px above the pin: the flag and its "to pin" label
 }
 /** Close-up of the green (and any balls on or near it), still turned so you look at it from the fairway. */
 function greenCamera(n, animate) {
@@ -678,31 +706,46 @@ function greenCamera(n, animate) {
   const brg = bearing(h.line[0], h.line[h.line.length - 1]);
   const pts = gp ? coordsOf(gp.f.geometry) : [pin];
   hd(n).shots.forEach(s => { if (meters(s.to, pin) < 40) pts.push(s.to); });
-  fitTurned([...pts, pin], pin, brg, 21, animate, 6);
+  fitTurned([...pts, pin], pin, brg, 21, animate, 6, 34);   // 34 px above the pin: the flag
 }
-function fitTurned(pts, b, brg, maxZoom, animate, padM = 30) {
+/** Space the map's own controls take, in px: the button row at the top, the hole switcher at the bottom. */
+function mapInsets() {
+  const box = map.getContainer().getBoundingClientRect();
+  const ctl = document.querySelector(".mapctl").getBoundingClientRect(), sw = document.getElementById("mapHole").getBoundingClientRect();
+  return { top: Math.max(0, ctl.bottom - box.top) + 6, bottom: Math.max(0, box.bottom - sw.top) + 6 };
+}
+/** Fit pts between the map's controls, turned to bearing brg. b (the pin) is the origin;
+    `above` is how many px to keep clear above it for what is drawn there. */
+function fitTurned(pts, b, brg, maxZoom, animate, padM = 30, above = 0) {
   const lat0 = b[1], kx = 111320 * Math.cos(lat0 * D2R), ky = 111132;
   const th = brg * D2R, c = Math.cos(th), s = Math.sin(th);
-  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;     // u: right on screen, v: up, in metres from b
   pts.forEach(p => {
     const dx = (p[0] - b[0]) * kx, dy = (p[1] - b[1]) * ky;
     const u = dx * c - dy * s, v = dx * s + dy * c;
     u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
   });
-  const uc = (u0 + u1) / 2, vc = (v0 + v1) / 2;
+  const box = map.getContainer(), ins = mapInsets();
+  const w = Math.max(box.clientWidth - 60, 100), hgt = Math.max(box.clientHeight - ins.top - ins.bottom, 100);
+  const M0 = 78271.517 * Math.cos(lat0 * D2R), mppMin = M0 / 2 ** maxZoom;   // metres per px at zoom 0, and at maxZoom
+  // How many metres `above` px comes to depends on the zoom, and the zoom on the fit: a few rounds settle it.
+  let mpp = mppMin, top = v1;
+  for (let k = 0; k < 5; k++) {
+    top = Math.max(v1, above * mpp - padM / 2);
+    mpp = Math.max((u1 - u0 + padM) / w, (top - v0 + padM) / hgt, mppMin);
+  }
+  // Centre it in the space between the controls, which sits a little off the middle of the map.
+  const uc = (u0 + u1) / 2, vc = (v0 + top) / 2 + (ins.top - ins.bottom) / 2 * mpp;
   const dx = uc * c + vc * s, dy = -uc * s + vc * c;
-  const center = [b[0] + dx / kx, b[1] + dy / ky];
-  const box = map.getContainer();
-  const w = Math.max(box.clientWidth - 60, 100), hgt = Math.max(box.clientHeight - 130, 100);
-  const mpp = Math.max((u1 - u0 + padM) / w, (v1 - v0 + padM) / hgt);
-  const zoom = Math.min(maxZoom, Math.log2(78271.517 * Math.cos(lat0 * D2R) / mpp));
-  const opts = { center, zoom, bearing: brg };
+  const opts = { center: [b[0] + dx / kx, b[1] + dy / ky], zoom: Math.log2(M0 / mpp), bearing: brg };
   animate ? map.easeTo({ ...opts, duration: 700 }) : map.jumpTo(opts);
 }
 function overviewCamera(animate) {
   const cs = coordsOf(COURSE_POLY.f.geometry);
   const xs = cs.map(c => c[0]), ys = cs.map(c => c[1]);
-  map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: { top: 60, bottom: 30, left: 20, right: 20 }, bearing: 0, duration: animate ? 700 : 0 });
+  const ins = mapInsets();     // plus room for the hole-number markers, which sit on the tees near the edges
+  map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]],
+    { padding: { top: ins.top + 18, bottom: ins.bottom + 18, left: 24, right: 24 }, bearing: 0, duration: animate ? 700 : 0 });
 }
 
 function styleMap() {
@@ -1006,7 +1049,8 @@ function greenHTML(n) {
   if (!r) return `<div class="gread"><p>No slope data for this green.</p></div>`;
   const P = r.putt, c = P && P.caddy;
   let read;
-  if (!P) read = `<p class="putt">Tap where your ball is on the green, or use the button below, for a caddy read.</p>`;
+  if (!P) read = hd(n).putts !== null ? `<p class="putt">Hole finished. Use the button below to read a putt from any spot.</p>`
+    : `<p class="putt">Tap where your ball is on the green, or use the button below, for a caddy read.</p>`;
   else if (P.off) read = `<p class="putt">That spot is off the green. Tap a spot on the green to read the putt.</p>`;
   else read = `<p class="putt"><b>${P.temp ? "From your spot" : "Your putt"}:</b> ${P.ft} ft · ${P.rise}</p>
     ${c && c.aim ? `<p class="caddy"><b>${c.aim}.</b><br>${c.hot ? "Pace: as soft as you can." : `Pace: hit it like a ${c.playsFt} ft putt on flat ground${
@@ -1039,7 +1083,15 @@ function mapTap(p) {
   }
   addShot(p);
 }
+/** A finished hole takes no more shots: a stray tap on the map would quietly add a stroke
+    to a score that counts in the round and may already be on the group leaderboard. */
+function holeDone() {
+  if (hd(holeNo).putts === null) return false;
+  toast(`Hole ${holeNo} is finished. Tap Clear putts to add a shot.`);
+  return true;
+}
 function addShot(p) {
+  if (holeDone()) return;
   const d = hd(holeNo, true);
   d.shots.push({ to: p, club: "", pen: 0 });
   const lie = lieAt(p, holeNo);
@@ -1054,6 +1106,8 @@ function setReadSpot(p) {
 function leaveGreen() { greenMode = false; readMode = false; readSpot = null; }
 function setView(v) {
   view = v; leaveGreen();
+  if (round.hole !== holeNo) { round.hole = holeNo; save(); }
+  document.querySelector(".mapctl").classList.toggle("all", v === "overview");   // hides the buttons that need a hole
   document.getElementById("viewBtn").classList.toggle("on", v === "overview");
   document.getElementById("viewBtn").textContent = v === "overview" ? "Back to hole " + holeNo : "All holes";
   document.getElementById("panel").scrollTop = 0;
@@ -1083,6 +1137,7 @@ document.getElementById("styleBtn").onclick = () => { mapStyle = mapStyle === "s
 document.getElementById("locBtn").onclick = () => {
   if (view !== "hole") { toast("Pick a hole first"); return; }
   if (!navigator.geolocation) { toast("Location isn't available in this browser"); return; }
+  if (!(greenMode && readMode) && holeDone()) return;
   toast("Getting your location…");
   navigator.geolocation.getCurrentPosition(pos => {
     const p = [pos.coords.longitude, pos.coords.latitude];
@@ -1127,7 +1182,7 @@ function fillRounds() {
 rName.oninput = () => { round.name = rName.value; save(); fillRounds(); };
 rDate.onchange = () => { round.date = rDate.value; save(); fillRounds(); };
 rName.onkeydown = e => { if (e.key === "Enter") document.getElementById("menu").open = false; };
-roundSel.onchange = () => { round = store.rounds.find(r => r.id === roundSel.value); store.cur = round.id; save(); holeNo = 1; setView("hole"); };
+roundSel.onchange = () => { round = store.rounds.find(r => r.id === roundSel.value); store.cur = round.id; save(); holeNo = resumeHole(); setView("hole"); };
 document.getElementById("newRound").onclick = () => { round = newRound(); holeNo = 1; setView("hole"); toast("New round started — tap a tee box on hole 1. Name it under ⋯"); };
 document.getElementById("menu").addEventListener("click", e => {
   const b = e.target.closest("[data-menu]"); if (!b) return;
@@ -1143,7 +1198,7 @@ document.getElementById("menu").addEventListener("click", e => {
   } else if (act === "delete") {
     if (!confirm(`Delete the round "${roundLabel(round)}"? This can't be undone unless you exported it.`)) return;
     store.rounds = store.rounds.filter(r => r.id !== round.id);
-    round = store.rounds[0] || newRound(); store.cur = round.id; save(); holeNo = 1; setView("hole");
+    round = store.rounds[0] || newRound(); store.cur = round.id; save(); holeNo = resumeHole(); setView("hole");
   }
 });
 document.getElementById("importFile").onchange = async e => {
@@ -1159,6 +1214,9 @@ document.getElementById("importFile").onchange = async e => {
       if (i >= 0) { store.rounds[i] = r; updated++; } else { store.rounds.push(r); added++; }
     });
     store.rounds.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    // The file may hold the round that is open. Carry on with the imported copy: the old object
+    // is no longer in the saved list, so anything added to it would be lost.
+    round = store.rounds.find(r => r.id === round.id) || round; store.cur = round.id;
     save(); fillRounds(); render();
     toast(`Imported ${added} new, ${updated} updated round(s)`);
   } catch (err) { toast("Couldn't import: " + err.message); }
@@ -1201,7 +1259,7 @@ function renderHolePanel() {
   if (!rows.length) hint = "Tap the tee box you played from (or drag the <b>T</b>), then tap the map where each shot finished. Drag the flag to today's pin.";
   else if (onGreen && d.putts === null) hint = greenMode ? "On the green — tap how many putts you took."
     : "On the green — tap <b>⛳ Green</b> on the map to read the putt, then tap how many putts you took.";
-  else if (d.putts !== null) hint = "Hole done. Drag any ball to fix its spot.";
+  else if (d.putts !== null) hint = "Hole done. Drag any ball to fix its spot. To add a shot, tap <b>Clear putts</b> first.";
   else hint = `Tap where shot ${rows.length + 1} finished. ${Math.round(rows[rows.length - 1].toPin)} yds to the pin.`;
 
   const shotsHTML = rows.length ? rows.map(r => `
@@ -1219,10 +1277,11 @@ function renderHolePanel() {
     </li>`).join("") : `<li style="display:block;border:0;padding:0"><div class="empty">No shots yet on this hole.</div></li>`;
 
   // One tap per putt count. The last button starts at 5 and adds one each tap, for the bad days.
-  const many = d.putts !== null && d.putts > 4;
+  // Putts finish the hole, so they wait for a first shot: putts alone would score a par 4 as a "hole in one".
+  const many = d.putts !== null && d.putts > 4, off = rows.length ? "" : " disabled";
   const puttBtns = [0, 1, 2, 3, 4].map(v =>
-    `<button data-putt="${v}" class="${d.putts === v ? "on" : ""}" aria-pressed="${d.putts === v}" aria-label="${v} putt${v === 1 ? "" : "s"}">${v}</button>`).join("")
-    + `<button data-putt="more" class="${many ? "on" : ""}" aria-pressed="${many}" aria-label="${many ? d.putts + " putts, tap to add one" : "5 or more putts"}">${many ? d.putts : "5+"}</button>`;
+    `<button data-putt="${v}" class="${d.putts === v ? "on" : ""}" aria-pressed="${d.putts === v}" aria-label="${v} putt${v === 1 ? "" : "s"}"${off}>${v}</button>`).join("")
+    + `<button data-putt="more" class="${many ? "on" : ""}" aria-pressed="${many}" aria-label="${many ? d.putts + " putts, tap to add one" : "5 or more putts"}"${off}>${many ? d.putts : "5+"}</button>`;
 
   // Putts sit above the shot list: they are what finishes a hole, and the panel is short on a phone.
   panel.innerHTML = `
@@ -1235,7 +1294,7 @@ function renderHolePanel() {
     ${greenMode ? `<div class="section-h">Green slope</div>${greenHTML(n)}` : ""}
     <div class="section-h">Putts</div>
     <div class="putts${onGreen && d.putts === null ? " ask" : ""}" role="group" aria-label="Putts on hole ${n}">${puttBtns}</div>
-    ${d.putts === null ? '<div class="note">Tap 0 if you holed out from off the green.</div>' : `
+    ${d.putts === null ? `<div class="note">${rows.length ? "Tap 0 if you holed out from off the green." : "Add your shots on the map first. Putts finish the hole."}</div>` : `
     <button class="primary next" data-act="${n < 18 ? "next" : "summary"}">${n < 18 ? "Next: Hole " + (n + 1) : "Round summary"} ›</button>
     <div class="btnrow"><button data-act="puttclear">Clear putts</button></div>`}
     <div class="section-h">Shots</div>
@@ -1311,7 +1370,8 @@ panel.addEventListener("click", e => {
   if (t.dataset.del != null) {
     // The ✕ sits right beside other buttons, so a deleted shot can be put back.
     const i = +t.dataset.del, n = holeNo, r = round, before = JSON.stringify(d);
-    d.shots.splice(i, 1); save(); render();
+    d.shots.splice(i, 1); if (!d.shots.length) d.putts = null;   // no shots left: the hole isn't finished any more
+    save(); render();
     toast(`Shot ${i + 1} deleted`, { label: "Undo", fn: () => { r.holes[n] = JSON.parse(before); save(); render(); } });
     return;
   }
@@ -1323,13 +1383,14 @@ panel.addEventListener("click", e => {
   }
   if (t.dataset.pen != null) { const s = d.shots[+t.dataset.pen]; s.pen = ((s.pen || 0) + 1) % 3; }
   else if (t.dataset.putt != null) {
-    d.putts = t.dataset.putt === "more" ? Math.min(9, Math.max(5, (d.putts || 0) + 1)) : +t.dataset.putt;
+    if (!d.shots.length) return;
+    d.putts =t.dataset.putt === "more" ? Math.min(9, Math.max(5, (d.putts || 0) + 1)) : +t.dataset.putt;
   }
   else switch (t.dataset.act) {
     case "prev": goHole(holeNo - 1); return;
     case "next": goHole(holeNo + 1); return;
     case "summary": setView("overview"); return;
-    case "undo": d.shots.pop(); break;
+    case "undo": d.shots.pop(); if (!d.shots.length) d.putts = null; break;
     case "clear": if (!confirm(`Clear everything on hole ${holeNo}?`)) return; delete round.holes[holeNo]; break;
     case "puttclear": d.putts = null; break;
     case "unlink": delete round.group; save(); renderPanel(); toast("Unlinked. Scores already posted stay on the leaderboard."); return;
@@ -1348,7 +1409,8 @@ function renderPanel() {
   fillRounds();
   document.getElementById("mapHoleLbl").textContent = view === "hole" ? `Hole ${holeNo} · Par ${HOLES[holeNo].par}` : "All 18 holes";
   const gb = document.getElementById("greenBtn");
-  gb.classList.toggle("on", greenMode); gb.textContent = greenMode ? "⛳ Back to hole" : "⛳ Green";
+  // On a phone the label is just "Back" (.long is hidden there), so the row stays on one line and the green keeps its room.
+  gb.classList.toggle("on", greenMode); gb.innerHTML = greenMode ? '⛳ Back<span class="long"> to hole</span>' : "⛳ Green";
 }
 function render(moveCamera, animate = true) {
   renderPanel();
@@ -1358,7 +1420,9 @@ function render(moveCamera, animate = true) {
   if (moveCamera) view === "hole" ? holeCamera(holeNo, animate) : overviewCamera(animate);
 }
 renderPanel();
-window.addEventListener("resize", () => { clearTimeout(window.__rz); window.__rz = setTimeout(() => view === "hole" ? holeCamera(holeNo, false) : overviewCamera(false), 250); });
+// Scores that didn't get out last time (the page closed mid-pause, or there was no signal): send them now.
+if (round.group) { pushGroup(round); flushGroup(round.group.room); }
+window.addEventListener("resize",() => { clearTimeout(window.__rz); window.__rz = setTimeout(() => view === "hole" ? holeCamera(holeNo, false) : overviewCamera(false), 250); });
 
 // Offline support (sw.js): once opened with signal, the page and the tiles you have seen load without it.
 if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register("sw.js").catch(() => {});

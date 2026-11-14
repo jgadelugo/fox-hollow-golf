@@ -20,12 +20,12 @@ python scripts/serve.py      # http://localhost:8765
    - Tap where each shot finished. Each shot shows its length and the lie (fairway, rough, bunker, water, green), worked out from the course map.
    - Drag the red flag to where the pin was that day; drag any ball to fix its spot.
    - Pick the club for each shot. Tap **+0** to add penalty strokes (cycles 0/1/2). **✕** deletes a shot; **Undo** on the message that follows puts it back.
-   - Tap your number of **Putts** once you're on the green (**0** if you holed out from off the green). That finishes the hole: it now counts in your score, and **Next: Hole …** takes you on.
+   - Tap your number of **Putts** once you're on the green (**0** if you holed out from off the green). That finishes the hole: it now counts in your score, and **Next: Hole …** takes you on. Putts unlock once the hole has a shot. A finished hole takes no more shots, so a stray tap on the map can't change the score: tap **Clear putts** first if you need to add one.
    - On the course, **📍 Ball is here** adds a shot at your phone's GPS position (needs https or localhost).
    - **⛳ Green** zooms in on the green and shows its slopes: blue is low and red is high, arrows point downhill (longer = steeper), and lines mark every few inches of height. Mark where your ball is on the green and it reads the putt like a caddy: where to aim ("2 cups outside the left edge"), how hard to hit it ("like a 24 ft putt on flat ground") and which way it breaks, with the predicted roll drawn on the map. Pick the green speed (Slow 8 / Medium 10 / Fast 12). **Read from a spot** gives a read from anywhere you tap, or from your GPS position with 📍, without adding a shot. The read rolls a ball over the slopes from a USGS lidar survey at the speed you picked, so treat it as a guide to the main breaks and read the putt yourself too: the survey is about 1 m resolution and a few years old, and the green speed is a guess. Putts over 60 ft get no aim point, and where the survey shows a slope too steep for a ball to stop by the hole the read says so instead of counting cups.
 3. **All holes** shows every shot on the whole course, plus round stats: score, putts, fairways hit, greens in regulation, average tee shot and distance per club.
 
-Rounds are saved in this browser only. Use **⋯ → Export rounds** to keep a JSON backup (or to move rounds to your phone), and **Import** to load them back.
+Rounds are saved in this browser only, along with the hole each round was last on, so reopening the page mid-round brings you back to that hole. Use **⋯ → Export rounds** to keep a JSON backup (or to move rounds to your phone), and **Import** to load them back.
 
 How stats are counted:
 - **Score**: only finished holes (putts entered) count toward your total and "thru". A hole in progress shows its strokes so far, like `3…`.
