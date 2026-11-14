@@ -631,7 +631,8 @@ function drawMarkers() {
   const n = holeNo, d = hd(n);
   // The flag is draggable, but a plain tap on it places a shot there:
   // approaches often finish right next to the pin.
-  addMarker(hitArea(el("mk-pin"), " pin"), pinOf(n), { anchor: "bottom", tap: ev => addShot(pointAt(ev)),
+  // (In "Read from a spot" mode the tap marks the reading spot instead, like any other tap.)
+  addMarker(hitArea(el("mk-pin"), " pin"), pinOf(n), { anchor: "bottom", tap: ev => mapTap(pointAt(ev)),
     drag: (ll, done) => { hd(n, true).pin = ll; onGeomChange(done); } });
   // The tee and the balls are bigger to grab than they look. A tap in the empty part
   // of that touch area counts as a tap on the map, so shots can still land close by.
