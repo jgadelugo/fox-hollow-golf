@@ -154,38 +154,70 @@ function apply(raw, persist = true) {
   } else if (m.t === "x" && m.id) {
     const pl = S.players[m.id] || { n: "Player", k: [0, 0], joined: k };
     if (newer(pl.xk, k)) { pl.x = true; pl.xk = k; S.players[m.id] = pl; }
-  } else if (m.t === "s" && m.p && m.h >= 1 && m.h <= 18) {
-    const key = m.p + ":" + m.h, prev = S.scores[key];
-    const v = m.v === null ? null : Math.max(1, Math.min(15, Math.round(+m.v)));
-    if (!prev || newer(prev.k, k)) S.scores[key] = { v, k };
+  } else if (m.t === "s") {
+    if (!setCell(m.p, m.h, m.v, k)) return false;
+  } else if (m.t === "b" && Array.isArray(m.s)) {
+    // A batch: several scores entered within a few seconds, sent as one message.
+    let any = false;
+    m.s.slice(0, 200).forEach(x => { if (Array.isArray(x) && setCell(x[0], x[1], x[2], k)) any = true; });
+    if (!any) return false;
   } else return false;
   if (persist && !String(raw.id).startsWith("local-")) { S.log.push({ id: raw.id, time: raw.time, message: raw.message }); saveLog(); }
+  return true;
+}
+function setCell(p, h, v, k) {
+  if (typeof p !== "string" || !p || !(h >= 1 && h <= 18)) return false;
+  const key = p + ":" + h, prev = S.scores[key];
+  v = v === null ? null : Math.max(1, Math.min(15, Math.round(+v)));
+  if (Number.isNaN(v)) return false;
+  if (!prev || newer(prev.k, k)) S.scores[key] = { v, k };
   return true;
 }
 let saveT;
 function saveLog() { clearTimeout(saveT); saveT = setTimeout(() => ls.set("fhg.log." + room, S.log.slice(-2000)), 300); }
 
 /* ---------- sending (with an outbox for patchy signal) ---------- */
+/* The free relay allows 250 messages a day per network, so score taps are
+   collected for a few seconds and sent as one batch (about one message per hole). */
 function outbox() { return ls.get("fhg.out." + room, []); }
-function send(m) {
-  m.c = Date.now();
-  const body = JSON.stringify(m);
-  // Show it immediately; the relay's echo has the same content.
-  apply({ id: "local-" + m.c + Math.random(), time: Math.floor(Date.now() / 1000 + clockSkew), message: body }, false);
-  ls.set("fhg.out." + room, [...outbox(), body]);
-  render(); flush();
+function showLocal(m) {
+  apply({ id: "local-" + m.c + Math.random(), time: Math.floor(Date.now() / 1000 + clockSkew), message: JSON.stringify(m) }, false);
 }
-let flushing = false;
+function enqueue(m) {
+  ls.set("fhg.out." + room, [...outbox(), JSON.stringify(m)]);
+  flush();
+}
+function send(m) {               // players joining / leaving: sent right away
+  m.c = Date.now();
+  showLocal(m); enqueue(m); render();
+}
+let pending = {}, pendT = null;
+function setScore(p, h, v) {
+  const c = Date.now();
+  showLocal({ t: "s", p, h, v, c });
+  pending[p + ":" + h] = [p, h, v];
+  clearTimeout(pendT); pendT = setTimeout(commitPending, 2500);
+  render();
+}
+function commitPending() {
+  clearTimeout(pendT); pendT = null;
+  const s = Object.values(pending); pending = {};
+  if (s.length) enqueue({ t: "b", s, c: Date.now() });
+}
+let flushing = false, relayLimited = false;
 async function flush() {
   if (flushing) return; flushing = true;
   try {
     let q = outbox();
     while (q.length) {
-      const r = await fetch(RELAY + TOPIC_PREFIX + room, { method: "POST", body: q[0] });
+      // keepalive lets a send finish even if the phone locks or the tab closes.
+      const r = await fetch(RELAY + TOPIC_PREFIX + room, { method: "POST", body: q[0], keepalive: true });
+      if (r.status === 429) { relayLimited = true; throw new Error("limit"); }
       if (!r.ok) throw new Error("relay " + r.status);
+      relayLimited = false;
       q = outbox().slice(1); ls.set("fhg.out." + room, q);
     }
-  } catch (e) { setTimeout(flush, 8000); }
+  } catch (e) { setTimeout(flush, relayLimited ? 60000 : 8000); }
   finally { flushing = false; renderStatus(); }
 }
 
@@ -194,8 +226,10 @@ function connect() {
   if (es) es.close();
   es = new EventSource(RELAY + TOPIC_PREFIX + room + "/sse?since=all");
   es.onmessage = e => { let raw; try { raw = JSON.parse(e.data); } catch (x) { return; } if (apply(raw)) render(); };
+  const mine = es;
   es.onopen = () => { renderStatus(); flush(); };
-  es.onerror = () => renderStatus();
+  // A stream the browser gave up on (e.g. relay refused it) stays closed: try again in a bit.
+  es.onerror = () => { renderStatus(); if (mine.readyState === 2) setTimeout(() => { if (es === mine) connect(); }, 15000); };
   // Safety net: re-read the relay's copy now and then, in case the live stream missed something.
   clearInterval(pollTimer);
   pollTimer = setInterval(poll, 60000);
@@ -208,7 +242,15 @@ async function poll() {
     if (changed) render();
   } catch (e) {}
 }
-window.addEventListener("online", () => { flush(); connect(); });
+window.addEventListener("online", () => { if (room) { flush(); connect(); } });
+// Phones lock between shots. Send what's pending when the page hides; catch up when it's back.
+document.addEventListener("visibilitychange", () => {
+  if (!room) return;
+  if (document.hidden) { commitPending(); return; }
+  poll(); flush();
+  if (!es || es.readyState === 2) connect();
+});
+window.addEventListener("pagehide", () => { if (room) commitPending(); });
 
 /* ---------- derived numbers ---------- */
 const active = () => Object.entries(S.players).filter(([, p]) => !p.x)
@@ -229,9 +271,16 @@ const cls = (v, h) => { if (v == null) return ""; const d = v - PARS[h - 1]; ret
 /* ---------- screens ---------- */
 function renderStart() {
   lastHTML = "";
+  const meta = ls.get("fhg.meta", {});
+  const recent = ls.get("fhg.rooms", []).filter(c => meta[c] && Date.now() - meta[c].at < 3 * 864e5).slice(0, 3);
+  const when = t => { const m = Math.round((Date.now() - t) / 6e4); return m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " d ago"; };
   $("#app").innerHTML = `
     <header><h1>Fox Hollow Group Round<small>Branchburg, NJ · live scorecard for your group</small></h1></header>
     <div class="start">
+      ${recent.length ? `<div class="card"><h2>Your recent rounds</h2><div style="display:grid;gap:8px">${recent.map(c => `
+        <button data-room="${esc(c)}" style="text-align:left;display:flex;justify-content:space-between;gap:10px;align-items:center">
+          <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(meta[c].names || "No players yet")}</span>
+          <span class="muted" style="flex:0 0 auto">${esc(c)} · ${when(meta[c].at)}</span></button>`).join("")}</div></div>` : ""}
       <div class="card">
         <h2>Start a round</h2>
         <p class="muted">You'll get a code and a link to send your group. Everyone who opens it sees the same scorecard, live.</p>
@@ -244,6 +293,7 @@ function renderStart() {
     </div>
     <p class="foot">Want a shot-by-shot map instead? <a href="../">Fox Hollow shot map</a></p>`;
   $("#startBtn").onclick = () => openRoom(rid(6));
+  document.querySelectorAll("[data-room]").forEach(b => { b.onclick = () => openRoom(b.dataset.room); });
   const join = () => { const c = $("#codeIn").value.toUpperCase().replace(/[^A-Z0-9]/g, ""); if (c.length < 4) { toast("Enter the code from your group"); return; } openRoom(c); };
   $("#joinBtn").onclick = join;
   $("#codeIn").onkeydown = e => { if (e.key === "Enter") join(); };
@@ -263,9 +313,13 @@ function openRoom(code) {
 
 function renderStatus() {
   const el = $("#status"); if (!el) return;
-  const pending = outbox().length;
+  const waiting = outbox().length;
   const live = es && es.readyState === 1;
-  el.innerHTML = `<span class="dot ${live ? "live" : "off"}"></span>${live ? "Live" : navigator.onLine ? "Connecting…" : "Offline"}${pending ? ` · ${pending} waiting to send` : ""}`;
+  if (relayLimited && waiting) {
+    el.innerHTML = `<span class="dot off"></span>Relay's daily limit reached on this network. Scores are saved on this phone; switch Wi‑Fi/cell or have a friend enter them.`;
+    return;
+  }
+  el.innerHTML = `<span class="dot ${live ? "live" : "off"}"></span>${live ? "Live" : navigator.onLine ? "Connecting…" : "Offline"}${waiting ? ` · ${waiting} update${waiting > 1 ? "s" : ""} waiting to send` : ""}`;
 }
 
 function render() {
@@ -292,7 +346,9 @@ function drawRound() {
     return `<button data-hole="${h}" class="${h === hole ? "cur" : ""} ${done ? "done" : ""}" aria-label="Hole ${h}">${h}<small>P${par}</small></button>`;
   }).join("");
 
-  const entryRows = ps.length ? ps.map(([id, p]) => {
+  // Your own row first: it's the one you enter most.
+  const entryOrder = meP ? [...ps.filter(([id]) => id === meP), ...ps.filter(([id]) => id !== meP)] : ps;
+  const entryRows = ps.length ? entryOrder.map(([id, p]) => {
     const v = score(id, hole), d = v == null ? 0 : v - PARS[hole - 1];
     return `<div class="p">
       <div class="name">${esc(p.n)}${id === meP ? " <small>(you)</small>" : ""}</div>
@@ -350,6 +406,10 @@ function drawRound() {
     </div>
     <p class="foot">Scores go through ntfy.sh, a free public relay, and are kept there for 12 hours. Anyone with the code can see and edit this round, so don't put anything private in it. Your phone keeps its own copy.
       <br><a href="./">Start or join another round</a> · <a href="../">Fox Hollow shot map</a></p>`;
+  // Remember this round on this phone, so the start screen can offer it again.
+  const meta = ls.get("fhg.meta", {});
+  const names = ps.map(([, p]) => p.n).join(", ");
+  if (!meta[room] || meta[room].names !== names) { meta[room] = { at: Date.now(), names }; ls.set("fhg.meta", meta); }
   // Echoes of our own taps change nothing on screen: skip those redraws so a tap in progress isn't lost.
   if (html === lastHTML) { renderStatus(); return; }
   const holeChanged = lastHole !== hole;
@@ -370,10 +430,10 @@ document.addEventListener("click", async e => {
   if (d.inc || d.dec) {
     const p = d.inc || d.dec, v = score(p, hole), par = PARS[hole - 1];
     const nv = v == null ? (d.inc ? par : par - 1) : Math.max(1, Math.min(15, v + (d.inc ? 1 : -1)));
-    if (nv !== v) send({ t: "s", p, h: hole, v: nv });
+    if (nv !== v) setScore(p, hole, nv);
     return;
   }
-  if (d.clear) { if (score(d.clear, hole) != null) send({ t: "s", p: d.clear, h: hole, v: null }); return; }
+  if (d.clear) { if (score(d.clear, hole) != null) setScore(d.clear, hole, null); return; }
   if (d.rm) { const p = S.players[d.rm]; if (p && confirm(`Remove ${p.n} from this round?`)) send({ t: "x", id: d.rm }); return; }
   if (b.id === "meBtn") {
     const n = $("#nameIn").value.trim(); if (!n) { toast("Type your name first"); return; }

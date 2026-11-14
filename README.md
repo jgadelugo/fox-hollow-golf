@@ -38,6 +38,8 @@ https://jgadelugo.github.io/fox-hollow-golf/group/ is a live scorecard for your 
 
 Scores travel through [ntfy.sh](https://ntfy.sh), a free public message relay, under a topic named `fhgolf-<code>`. ntfy.sh keeps them for 12 hours, so latecomers catch up. Each phone also keeps its own copy and holds unsent scores until it has signal again. Anyone with the code can see and edit the round, so keep it to names and scores.
 
+ntfy.sh allows 250 messages a day per network (IP address). The page saves up score taps for 2.5 seconds and sends them as one message, which works out to about one message per hole, so a full round uses roughly 20–40. If the limit is hit anyway, the page says so and keeps the scores on that phone until they can be sent.
+
 ## Course data
 
 Hole lines, par, tees, greens, fairways, bunkers and water come from OpenStreetMap (© OpenStreetMap contributors, ODbL). Satellite imagery is from Esri. Yardages are measured on the map and won't match the scorecard exactly. OSM lists the course as par 70 (35/35); check that against the real scorecard.
