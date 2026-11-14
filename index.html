@@ -3,6 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2f6f3e">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
 <title>Fox Hollow Shot Map</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.css">
 <style>
@@ -44,17 +47,20 @@ body {
 button, select, input { font: inherit; color: inherit; }
 button {
   background: var(--chip); border: 1px solid var(--line); border-radius: 8px;
-  padding: 6px 10px; cursor: pointer;
+  padding: 6px 10px; cursor: pointer; min-height: 40px;   /* big enough to hit outdoors, one-handed */
 }
 button:hover { border-color: var(--muted); }
 button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 select, input[type="text"], input[type="date"] {
-  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; min-width: 0;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; min-width: 0; min-height: 40px;
 }
 
 /* Header */
 .top {
-  display: flex; align-items: center; gap: 12px; padding: 8px 16px;
+  --px: 16px; --py: 8px;
+  display: flex; align-items: center; gap: 12px;
+  /* Keep clear of the notch / rounded corners when the phone is turned or the page is installed. */
+  padding: calc(var(--py) + env(safe-area-inset-top, 0px)) max(var(--px), env(safe-area-inset-right, 0px)) var(--py) max(var(--px), env(safe-area-inset-left, 0px));
   background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap;
 }
 .brand { display: flex; flex-direction: column; margin-right: auto; }
@@ -63,50 +69,62 @@ select, input[type="text"], input[type="date"] {
 .round-ctl { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 #roundSel { max-width: 260px; text-overflow: ellipsis; }
 .menu { position: relative; }
-.menu summary { list-style: none; cursor: pointer; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--chip); }
+.menu summary { list-style: none; cursor: pointer; padding: 0 10px; min-width: 44px; min-height: 40px; display: grid; place-items: center;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--chip); }
 .menu summary::-webkit-details-marker { display: none; }
 .menu > div {
   position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; background: var(--panel);
-  border: 1px solid var(--line); border-radius: 10px; padding: 6px; display: grid; gap: 4px; min-width: 190px;
+  border: 1px solid var(--line); border-radius: 10px; padding: 6px; display: grid; gap: 4px; min-width: 240px;
   box-shadow: 0 8px 24px rgba(0,0,0,.18);
 }
-.menu > div button { text-align: left; background: transparent; border-color: transparent; }
+.menu > div button { text-align: left; background: transparent; border-color: transparent; min-height: 44px; }
 .menu > div button:hover { background: var(--chip); }
 .menu .danger { color: var(--bad); }
+.menu .fld { display: grid; gap: 3px; padding: 2px 4px; font-size: 12px; color: var(--muted); }
+.menu .fld input { width: 100%; color: var(--ink); font-size: 16px; }   /* 16px stops iOS zooming in on focus */
+.menu hr { width: 100%; margin: 4px 0; border: 0; border-top: 1px solid var(--line); }
 
 /* Layout */
 .app { display: grid; grid-template-columns: minmax(0, 1fr) 390px; min-height: 0; }
 .mapwrap { position: relative; min-height: 0; }
 #map { position: absolute; inset: 0; background: #2b3a26; }
-#panel { background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto; padding: 14px 16px 40px; }
+#panel { background: var(--panel); border-left: 1px solid var(--line); overflow-y: auto;
+  padding: 14px max(16px, env(safe-area-inset-right, 0px)) calc(40px + env(safe-area-inset-bottom, 0px)) 16px; }
 @media (max-width: 820px) {
   .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: 52dvh minmax(0, 1fr); }
-  #panel { border-left: 0; border-top: 1px solid var(--line); }
+  #panel { border-left: 0; border-top: 1px solid var(--line); padding-left: max(16px, env(safe-area-inset-left, 0px)); }
   .brand span { display: none; }
-  .top { gap: 6px; padding: 6px 12px; }
+  .top { gap: 6px; --px: 12px; --py: 6px; }
   .brand { margin-right: 0; }
   .round-ctl { flex: 1 1 100%; flex-wrap: nowrap; }
   #roundSel { flex: 1 1 0; width: 0; max-width: none; }
-  .mapctl button { padding: 4px 8px; font-size: 13px; }
+  .mapctl { gap: 4px; }
+  .mapctl button { padding: 0 8px; font-size: 13px; }
   .mapctl .long { display: none; }
   .maphole { bottom: 22px; }
 }
 
 /* Map overlay controls */
-.mapctl { position: absolute; top: 10px; left: 10px; z-index: 5; display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(100% - 60px); }
-.mapctl button { background: rgba(20,24,18,.78); color: #fff; border-color: rgba(255,255,255,.18); backdrop-filter: blur(4px); }
+.mapctl { position: absolute; top: 10px; left: max(10px, env(safe-area-inset-left, 0px)); z-index: 5; display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(100% - 20px); }
+.mapctl button { background: rgba(20,24,18,.78); color: #fff; border-color: rgba(255,255,255,.18); backdrop-filter: blur(4px); min-height: 44px; }
 .mapctl button.on { background: #ffd23f; color: #1d2419; border-color: #ffd23f; }
-.maphole { position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; gap: 6px; align-items: center;
-  background: rgba(20,24,18,.78); color: #fff; padding: 4px; border-radius: 999px; backdrop-filter: blur(4px); }
-.maphole button { background: transparent; color: #fff; border: 0; padding: 4px 12px; font-size: 18px; border-radius: 999px; }
+.maphole { position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; gap: 2px; align-items: center;
+  background: rgba(20,24,18,.78); color: #fff; padding: 2px; border-radius: 999px; backdrop-filter: blur(4px); }
+.maphole button { background: transparent; color: #fff; border: 0; padding: 0; min-width: 44px; min-height: 44px; font-size: 20px; border-radius: 999px; }
 .maphole button:hover { background: rgba(255,255,255,.12); }
 .maphole span { min-width: 92px; text-align: center; font-weight: 600; }
-.toast { position: absolute; top: 54px; left: 50%; transform: translateX(-50%); z-index: 6; background: rgba(20,24,18,.9); color: #fff;
+/* Messages sit above the hole switcher, away from the green at the top of the map. */
+.toast { position: absolute; bottom: 86px; left: 50%; transform: translateX(-50%); z-index: 6; background: rgba(20,24,18,.9); color: #fff;
   padding: 8px 14px; border-radius: 8px; font-size: 13px; pointer-events: none; opacity: 0; transition: opacity .2s; max-width: 90%; text-align: center; }
 .toast.show { opacity: 1; }
+/* A toast with a button (Undo) can be tapped while it shows. */
+.toast.act.show { pointer-events: auto; display: flex; align-items: center; gap: 4px; padding: 2px 4px 2px 14px; white-space: nowrap; }
+.toast button { background: transparent; border: 0; color: #ffd23f; font-weight: 700; min-height: 44px; padding: 0 12px; }
 
-/* Map markers */
-.mk { cursor: grab; }
+/* Map markers. Each one sits in a 44px touch area (.mk) so it is easy to grab; the visible part is its child. */
+.mk { cursor: grab; width: 44px; height: 44px; display: grid; place-items: center; }
+.mk.pin { place-items: end start; padding-left: 18px; }   /* puts the flagstick on the centre line */
+.mk.holeno { cursor: pointer; }
 .mk-ball { width: 22px; height: 22px; border-radius: 50%; background: var(--shot); color: #1d2419; border: 2px solid #fff;
   display: grid; place-items: center; font: 700 11px/1 system-ui, sans-serif; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
 .mk-ball.pen { border-color: var(--pen); box-shadow: 0 0 0 2px var(--pen), 0 1px 4px rgba(0,0,0,.5); }
@@ -125,16 +143,16 @@ select, input[type="text"], input[type="date"] {
 .holenav { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; margin-bottom: 8px; }
 .holenav h2 { margin: 0; font-size: 22px; text-align: center; }
 .holenav p { margin: 0; text-align: center; color: var(--muted); }
-.holenav button { font-size: 20px; padding: 2px 14px; }
+.holenav button { font-size: 20px; padding: 0; min-width: 44px; min-height: 44px; }
 .hint { background: var(--chip); border-radius: 8px; padding: 8px 10px; color: var(--muted); margin: 8px 0 12px; font-size: 13px; }
 .section-h { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 16px 0 6px; }
 .shots { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .shots li { display: grid; grid-template-columns: 26px 1fr auto auto; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; }
 .shots .n { width: 22px; height: 22px; border-radius: 50%; background: var(--shot); color: #1d2419; font-weight: 700; font-size: 11px; display: grid; place-items: center; }
 .shots .l1 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.shots .l2 { color: var(--muted); font-size: 12px; }
-.shots select { padding: 2px 4px; font-size: 13px; }
-.shots button { padding: 3px 8px; font-size: 12px; }
+.shots .l2 { color: var(--muted); font-size: 12px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+.shots select { padding: 2px 4px; font-size: 14px; }
+.shots button { padding: 0 6px; font-size: 14px; min-width: 44px; min-height: 44px; }
 .shots button.pen.on { background: var(--pen); color: #fff; border-color: var(--pen); }
 .lie { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--chip); border: 1px solid var(--line); }
 .lie-fairway { background: #d8f0cf; color: #24521c; border-color: #b9e0aa; }
@@ -145,23 +163,24 @@ select, input[type="text"], input[type="date"] {
 .lie-off { background: #f6d5d1; color: #7a231a; border-color: #eab3ac; }
 .empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
 .btnrow { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
-.putts { display: flex; align-items: center; gap: 8px; }
-.putts output { min-width: 28px; text-align: center; font-size: 20px; font-weight: 700; }
-.putts button { min-width: 38px; font-size: 18px; padding: 2px 10px; }
+.putts { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.putts button { min-height: 48px; padding: 0; font-size: 18px; font-weight: 700; }
+.putts button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .putts.ask { outline: 2px solid var(--shot); outline-offset: 4px; border-radius: 8px; }
+.note { color: var(--muted); font-size: 12px; margin-top: 6px; }
+.next { width: 100%; min-height: 48px; margin-top: 10px; font-size: 16px; font-weight: 600; }
 .result { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 4px; }
 .stat { background: var(--chip); border-radius: 10px; padding: 8px; text-align: center; }
 .stat b { display: block; font-size: 18px; }
 .stat span { color: var(--muted); font-size: 11px; }
 .yes { color: var(--good); } .no { color: var(--bad); }
-.meta { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
 
 /* Scorecard */
 .sc { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12px; margin-bottom: 8px; }
 .sc th, .sc td { border: 1px solid var(--line); text-align: center; padding: 3px 0; }
 .sc th:first-child { width: 44px; text-align: left; padding-left: 4px; color: var(--muted); font-weight: 500; }
 .sc .tot { font-weight: 700; background: var(--chip); width: 34px; }
-.sc .hn { cursor: pointer; }
+.sc .hn { cursor: pointer; height: 36px; }
 .sc .hn:hover { background: var(--chip); }
 .sc .cur { background: var(--shot) !important; color: #1d2419; }
 .sc .s { display: inline-grid; place-items: center; width: 20px; height: 20px; }
@@ -182,7 +201,7 @@ select, input[type="text"], input[type="date"] {
 .group .go { color: var(--accent); font-weight: 600; font-size: 13px; }
 .group.on { border-color: var(--accent); }
 .group.on a { color: var(--accent); font-weight: 600; font-size: 13px; }
-.group.on button { padding: 2px 8px; }
+.group.on button { padding: 0; min-width: 44px; min-height: 44px; }
 .warn { color: var(--bad); font-size: 12px; margin-top: 6px; }
 .gread { background: var(--chip); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; }
 .gread p { margin: 0; }
@@ -199,8 +218,11 @@ select, input[type="text"], input[type="date"] {
     <select id="roundSel" aria-label="Round"></select>
     <button id="newRound" class="primary">New round</button>
     <details class="menu" id="menu">
-      <summary aria-label="More">⋯</summary>
+      <summary aria-label="Round name, date and more">⋯</summary>
       <div>
+        <label class="fld">Round name<input type="text" id="rName" placeholder="e.g. Saturday w/ Dad" autocomplete="off"></label>
+        <label class="fld">Date<input type="date" id="rDate"></label>
+        <hr>
         <button data-menu="group">Group scorecard (live) ↗</button>
         <button data-menu="export">Export rounds (JSON)</button>
         <button data-menu="import">Import rounds…</button>
@@ -223,7 +245,7 @@ select, input[type="text"], input[type="date"] {
       <span id="mapHoleLbl"></span>
       <button data-act="next" aria-label="Next hole">›</button>
     </div>
-    <div class="toast" id="toast"></div>
+    <div class="toast" id="toast" role="status"></div>
   </div>
   <aside id="panel"></aside>
 </main>
@@ -424,14 +446,17 @@ function shotRows(n) {
     i, s, dist: yards(pts[i], s.to), toPin: yards(s.to, pin), lie: lieAt(s.to, n)
   }));
 }
+/** Round totals. `played` counts finished holes; `started` also counts a hole still in progress. */
 function roundStats() {
-  let score = 0, par = 0, played = 0, putts = 0, pen = 0, firHit = 0, firN = 0, girHit = 0, girN = 0;
+  let score = 0, par = 0, played = 0, started = 0, putts = 0, pen = 0, firHit = 0, firN = 0, girHit = 0, girN = 0;
   const tee = [];
   const clubs = {};
   for (let n = 1; n <= 18; n++) {
     const st = holeStats(n);
     if (!st) continue;
-    played++; score += st.score; par += HOLES[n].par; putts += st.putts || 0; pen += st.pen;
+    started++; pen += st.pen;
+    // A hole has no score until it is finished: two shots into a par 4 is not "-2".
+    if (st.finished) { played++; score += st.score; par += HOLES[n].par; putts += st.putts; }
     if (st.fir !== null) { firN++; if (st.fir) firHit++; }
     if (st.gir !== null) { girN++; if (st.gir) girHit++; }
     shotRows(n).forEach(r => {
@@ -439,7 +464,7 @@ function roundStats() {
       if (r.s.club && r.s.club !== "Putter" && !r.s.pen) (clubs[r.s.club] = clubs[r.s.club] || []).push(r.dist);
     });
   }
-  return { score, par, played, putts, pen, firHit, firN, girHit, girN, tee, clubs };
+  return { score, par, played, started, putts, pen, firHit, firN, girHit, girN, tee, clubs };
 }
 
 /* ---------- map ---------- */
@@ -516,12 +541,25 @@ function clearMarkers() { markers.forEach(m => m.remove()); markers = []; }
 function el(cls, text) { const e = document.createElement("div"); e.className = cls; if (text != null) e.textContent = text; return e; }
 function addMarker(elem, lngLat, opts = {}) {
   const m = new maplibregl.Marker({ element: elem, draggable: !!opts.drag, anchor: opts.anchor || "center" }).setLngLat(lngLat).addTo(map);
+  let draggedAt = 0;
   if (opts.drag) {
     m.on("drag", () => { opts.drag(m.getLngLat().toArray(), false); });
-    m.on("dragend", () => { opts.drag(m.getLngLat().toArray(), true); });
+    m.on("dragend", () => { draggedAt = Date.now(); opts.drag(m.getLngLat().toArray(), true); });
   }
+  elem.addEventListener("click", ev => {
+    ev.stopPropagation();
+    if (Date.now() - draggedAt < 400) return;      // the click a mouse sends at the end of a drag
+    if (opts.tap) opts.tap(ev);
+  });
   markers.push(m);
   return m;
+}
+/** A marker's visible part, wrapped in its 44px touch area. */
+function hitArea(visual, extra = "") { const w = el("mk" + extra); w.appendChild(visual); return w; }
+/** Map position [lon, lat] of a tap. */
+function pointAt(ev) {
+  const r = map.getContainer().getBoundingClientRect(), ll = map.unproject([ev.clientX - r.left, ev.clientY - r.top]);
+  return [ll.lng, ll.lat];
 }
 
 function segmentsFC(holes) {
@@ -569,34 +607,26 @@ function drawMarkers() {
   clearMarkers();
   if (view === "overview") {
     for (let n = 1; n <= 18; n++) {
-      const e = el("mk mk-holeno" + (holeStats(n) ? " played" : ""), String(n));
+      const e = hitArea(el("mk-holeno" + (holeStats(n) ? " played" : ""), String(n)), " holeno");
       e.title = "Hole " + n;
-      e.addEventListener("click", () => { holeNo = n; setView("hole"); });
-      addMarker(e, HOLES[n].line[0]);
+      addMarker(e, HOLES[n].line[0], { tap: () => { holeNo = n; setView("hole"); } });
     }
     return;
   }
   const n = holeNo, d = hd(n);
   // The flag is draggable, but a plain tap on it places a shot there:
   // approaches often finish right next to the pin.
-  const pinEl = el("mk mk-pin");
-  let pinMoved = false;
-  addMarker(pinEl, pinOf(n), { anchor: "bottom-left", drag: (ll, done) => {
-    pinMoved = true; hd(n, true).pin = ll; onGeomChange(done);
-  } });
-  pinEl.addEventListener("click", ev => {
-    ev.stopPropagation();
-    if (pinMoved) { pinMoved = false; return; }
-    const r = map.getContainer().getBoundingClientRect();
-    const ll = map.unproject([ev.clientX - r.left, ev.clientY - r.top]);
-    addShot([ll.lng, ll.lat]);
-  });
-  addMarker(el("mk mk-tee", "T"), startOf(n), { drag: (ll, done) => {
+  addMarker(hitArea(el("mk-pin"), " pin"), pinOf(n), { anchor: "bottom", tap: ev => addShot(pointAt(ev)),
+    drag: (ll, done) => { hd(n, true).pin = ll; onGeomChange(done); } });
+  // The tee and the balls are bigger to grab than they look. A tap in the empty part
+  // of that touch area counts as a tap on the map, so shots can still land close by.
+  const through = ev => { if (ev.target === ev.currentTarget) mapTap(pointAt(ev)); };
+  addMarker(hitArea(el("mk-tee", "T")), startOf(n), { tap: through, drag: (ll, done) => {
     hd(n, true).start = ll; onGeomChange(done);
   } });
   d.shots.forEach((s, i) => {
-    const e = el("mk mk-ball" + (s.pen ? " pen" : "") + (i === d.shots.length - 1 ? " last" : ""), String(i + 1));
-    addMarker(e, s.to, { drag: (ll, done) => { hd(n, true).shots[i].to = ll; onGeomChange(done); } });
+    const e = hitArea(el("mk-ball" + (s.pen ? " pen" : "") + (i === d.shots.length - 1 ? " last" : ""), String(i + 1)));
+    addMarker(e, s.to, { tap: through, drag: (ll, done) => { hd(n, true).shots[i].to = ll; onGeomChange(done); } });
   });
 }
 function onGeomChange(done) {
@@ -821,15 +851,17 @@ function greenHTML(n) {
 /* ---------- interactions ---------- */
 map.on("click", e => {
   if (e.originalEvent && e.originalEvent.target.closest && e.originalEvent.target.closest(".mk")) return;
+  mapTap([e.lngLat.lng, e.lngLat.lat]);
+});
+function mapTap(p) {
   if (view !== "hole") return;
-  const p = [e.lngLat.lng, e.lngLat.lat];
   const d = hd(holeNo, true);
   // Before the first shot, tapping one of this hole's tee boxes sets where you teed off.
   if (!d.shots.length && hits(p, "tee").some(x => x.holes.includes(holeNo))) {
     d.start = p; save(); render(); toast("Tee set — now tap where your tee shot finished"); return;
   }
   addShot(p);
-});
+}
 function addShot(p) {
   const d = hd(holeNo, true);
   d.shots.push({ to: p, club: "", pen: 0 });
@@ -842,15 +874,26 @@ function setView(v) {
   view = v; greenMode = false;
   document.getElementById("viewBtn").classList.toggle("on", v === "overview");
   document.getElementById("viewBtn").textContent = v === "overview" ? "Back to hole " + holeNo : "All holes";
+  document.getElementById("panel").scrollTop = 0;
   render(true);
 }
 function goHole(n) { holeNo = ((n - 1 + 18) % 18) + 1; if (view !== "hole") view = "hole"; setView("hole"); }
 
 let toastTimer;
-function toast(msg) {
+/** Short message over the map. `action` ({label, fn}) adds a button, e.g. Undo, and keeps it up longer. */
+function toast(msg, action) {
   const t = document.getElementById("toast");
-  t.textContent = msg; t.classList.add("show");
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2600);
+  const hide = () => { t.classList.remove("show", "act"); };
+  t.textContent = msg;
+  t.classList.toggle("act", !!action);
+  if (action) {
+    const b = document.createElement("button");
+    b.textContent = action.label;
+    b.onclick = () => { clearTimeout(toastTimer); hide(); action.fn(); };
+    t.appendChild(b);
+  }
+  t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(hide, action ? 7000 : 2600);
 }
 
 document.getElementById("viewBtn").onclick = () => setView(view === "hole" ? "overview" : "hole");
@@ -886,16 +929,23 @@ document.addEventListener("keydown", e => {
 const roundSel = document.getElementById("roundSel");
 function roundLabel(r) {
   const prev = round; round = r; const st = roundStats(); round = prev;
-  const sc = st.played ? ` · ${st.score} (${fmtDiff(st.score - st.par)}) thru ${st.played}` : " · not started";
+  const sc = st.played ? ` · ${st.score} (${fmtDiff(st.score - st.par)}) thru ${st.played}` : st.started ? " · in progress" : " · not started";
   return (r.date || "No date") + (r.name ? " – " + r.name : "") + sc;
 }
+// The round's name and date live in the ⋯ menu, out of the way of scoring.
+const rName = document.getElementById("rName"), rDate = document.getElementById("rDate");
 function fillRounds() {
   roundSel.innerHTML = "";
   store.rounds.forEach(r => { const o = document.createElement("option"); o.value = r.id; o.textContent = roundLabel(r); roundSel.appendChild(o); });
   roundSel.value = round.id;
+  if (rName.value !== (round.name || "")) rName.value = round.name || "";
+  if (rDate.value !== (round.date || "")) rDate.value = round.date || "";
 }
+rName.oninput = () => { round.name = rName.value; save(); fillRounds(); };
+rDate.onchange = () => { round.date = rDate.value; save(); fillRounds(); };
+rName.onkeydown = e => { if (e.key === "Enter") document.getElementById("menu").open = false; };
 roundSel.onchange = () => { round = store.rounds.find(r => r.id === roundSel.value); store.cur = round.id; save(); holeNo = 1; setView("hole"); };
-document.getElementById("newRound").onclick = () => { round = newRound(); holeNo = 1; setView("hole"); toast("New round started — tap a tee box on hole 1"); };
+document.getElementById("newRound").onclick = () => { round = newRound(); holeNo = 1; setView("hole"); toast("New round started — tap a tee box on hole 1. Name it under ⋯"); };
 document.getElementById("menu").addEventListener("click", e => {
   const b = e.target.closest("[data-menu]"); if (!b) return;
   document.getElementById("menu").open = false;
@@ -946,8 +996,9 @@ function scorecardHTML() {
       par += `<td>${HOLES[n].par}</td>`;
       pt += HOLES[n].par;
       if (s) {
-        any = true; st += s.score;
-        const cls = s.diff <= -2 ? "eagle" : s.diff === -1 ? "birdie" : s.diff === 1 ? "bogey" : s.diff >= 2 ? "double" : "";
+        // Strokes so far show as "3…"; only a finished hole counts in the total and earns a birdie/bogey mark.
+        if (s.finished) { any = true; st += s.score; }
+        const cls = !s.finished ? "" : s.diff <= -2 ? "eagle" : s.diff === -1 ? "birdie" : s.diff === 1 ? "bogey" : s.diff >= 2 ? "double" : "";
         sc += `<td class="hn" data-hole="${n}"><span class="s ${cls}">${s.score}${s.finished ? "" : "…"}</span></td>`;
       } else sc += `<td class="hn" data-hole="${n}"></td>`;
     }
@@ -958,10 +1009,6 @@ function scorecardHTML() {
   return half(1, "Out") + half(10, "In");
 }
 
-function roundMetaHTML() {
-  return `<div class="meta"><input type="text" id="rName" placeholder="Round name (e.g. Saturday w/ Dad)"><input type="date" id="rDate"></div>`;
-}
-
 function renderHolePanel() {
   const n = holeNo, h = HOLES[n], d = hd(n), st = holeStats(n), rows = shotRows(n);
   const fromTee = Math.round(yards(startOf(n), pinOf(n)));
@@ -969,9 +1016,9 @@ function renderHolePanel() {
   const onGreen = lastLie && lastLie.k === "green" && lastLie.own;
   let hint;
   if (!rows.length) hint = "Tap the tee box you played from (or drag the <b>T</b>), then tap the map where each shot finished. Drag the flag to today's pin.";
-  else if (onGreen && d.putts === null) hint = greenMode ? "On the green — enter your putts below."
-    : "On the green — tap <b>⛳ Green</b> on the map to read the putt, then enter your putts below.";
-  else if (d.putts !== null) hint = "Hole done. Drag any ball to fix its spot, or use › to go to the next hole.";
+  else if (onGreen && d.putts === null) hint = greenMode ? "On the green — tap how many putts you took."
+    : "On the green — tap <b>⛳ Green</b> on the map to read the putt, then tap how many putts you took.";
+  else if (d.putts !== null) hint = "Hole done. Drag any ball to fix its spot.";
   else hint = `Tap where shot ${rows.length + 1} finished. ${Math.round(rows[rows.length - 1].toPin)} yds to the pin.`;
 
   const shotsHTML = rows.length ? rows.map(r => `
@@ -981,39 +1028,42 @@ function renderHolePanel() {
         <div class="l1">
           <select data-club="${r.i}" aria-label="Club for shot ${r.i + 1}">${CLUBS.map(c => `<option value="${c}"${c === r.s.club ? " selected" : ""}>${c || "Club…"}</option>`).join("")}</select>
           <b>${Math.round(r.dist)} yds</b>
-          <span class="lie lie-${r.lie.k}">${esc(r.lie.label)}</span>
         </div>
-        <div class="l2">${r.lie.k === "green" && r.lie.own ? Math.round(r.toPin * 3) + " ft to pin" : Math.round(r.toPin) + " yds to pin"}</div>
+        <div class="l2"><span class="lie lie-${r.lie.k}">${esc(r.lie.label)}</span>${r.lie.k === "green" && r.lie.own ? Math.round(r.toPin * 3) + " ft to pin" : Math.round(r.toPin) + " yds to pin"}</div>
       </div>
       <button class="pen${r.s.pen ? " on" : ""}" data-pen="${r.i}" title="Penalty strokes (tap to cycle 0/1/2)">${r.s.pen ? "+" + r.s.pen : "+0"}</button>
       <button data-del="${r.i}" aria-label="Delete shot ${r.i + 1}">✕</button>
     </li>`).join("") : `<li style="display:block;border:0;padding:0"><div class="empty">No shots yet on this hole.</div></li>`;
 
+  // One tap per putt count. The last button starts at 5 and adds one each tap, for the bad days.
+  const many = d.putts !== null && d.putts > 4;
+  const puttBtns = [0, 1, 2, 3, 4].map(v =>
+    `<button data-putt="${v}" class="${d.putts === v ? "on" : ""}" aria-pressed="${d.putts === v}" aria-label="${v} putt${v === 1 ? "" : "s"}">${v}</button>`).join("")
+    + `<button data-putt="more" class="${many ? "on" : ""}" aria-pressed="${many}" aria-label="${many ? d.putts + " putts, tap to add one" : "5 or more putts"}">${many ? d.putts : "5+"}</button>`;
+
+  // Putts sit above the shot list: they are what finishes a hole, and the panel is short on a phone.
   panel.innerHTML = `
-    ${roundMetaHTML()}
-    <div class="holenav" style="margin-top:12px">
+    <div class="holenav">
       <button data-act="prev" aria-label="Previous hole">‹</button>
       <div><h2>Hole ${n}</h2><p>Par ${h.par} · ${fromTee} yds from your tee${h.handicap ? " · HCP " + h.handicap : ""}</p></div>
       <button data-act="next" aria-label="Next hole">›</button>
     </div>
     <div class="hint">${hint}</div>
     ${greenMode ? `<div class="section-h">Green slope</div>${greenHTML(n)}` : ""}
+    <div class="section-h">Putts</div>
+    <div class="putts${onGreen && d.putts === null ? " ask" : ""}" role="group" aria-label="Putts on hole ${n}">${puttBtns}</div>
+    ${d.putts === null ? '<div class="note">Tap 0 if you holed out from off the green.</div>' : `
+    <button class="primary next" data-act="${n < 18 ? "next" : "summary"}">${n < 18 ? "Next: Hole " + (n + 1) : "Round summary"} ›</button>
+    <div class="btnrow"><button data-act="puttclear">Clear putts</button></div>`}
     <div class="section-h">Shots</div>
     <ol class="shots">${shotsHTML}</ol>
     <div class="btnrow">
       ${rows.length ? '<button data-act="undo">Undo last shot</button>' : ""}
       ${rows.length || d.start || d.pin || d.putts !== null ? '<button data-act="clear">Clear hole</button>' : ""}
     </div>
-    <div class="section-h">Putts</div>
-    <div class="putts${onGreen && d.putts === null ? " ask" : ""}">
-      <button data-act="putt-" aria-label="Fewer putts">−</button>
-      <output>${d.putts === null ? "–" : d.putts}</output>
-      <button data-act="putt+" aria-label="More putts">+</button>
-      ${d.putts === null ? '<button data-act="holed">Holed out (0)</button>' : '<button data-act="puttclear">Not finished</button>'}
-    </div>
     <div class="section-h">Hole ${n}</div>
     <div class="result">
-      <div class="stat"><b>${st ? st.score + (st.finished ? "" : "…") : "—"}</b><span>${st && st.finished ? scoreName(st.score, h.par) : "Score"}</span></div>
+      <div class="stat"><b>${st ? st.score + (st.finished ? "" : "…") : "—"}</b><span>${st && st.finished ? scoreName(st.score, h.par) : st ? "So far" : "Score"}</span></div>
       <div class="stat"><b>${h.par >= 4 ? mark(st ? st.fir : null) : "n/a"}</b><span>Fairway</span></div>
       <div class="stat"><b>${mark(st ? st.gir : null)}</b><span>Green in reg</span></div>
       <div class="stat"><b>${st ? st.pen : "—"}</b><span>Penalties</span></div>
@@ -1025,14 +1075,13 @@ function renderHolePanel() {
     ${totalsHTML()}
     ${saveOk ? "" : '<div class="warn">This browser isn\'t saving rounds (private window?). Use ⋯ → Export before closing.</div>'}
     <div class="foot">Course map © OpenStreetMap contributors · Imagery © Esri · Green slopes from USGS 3DEP lidar. Yardages are measured on the map, not from the scorecard.</div>`;
-  bindMeta();
 }
 
 function totalsHTML() {
   const s = roundStats();
-  if (!s.played) return "";
+  if (!s.started) return "";
   return `<div class="totals">
-    <div class="stat"><b>${s.score}</b><span>${fmtDiff(s.score - s.par)} thru ${s.played}</span></div>
+    <div class="stat"><b>${s.played ? s.score : "—"}</b><span>${s.played ? fmtDiff(s.score - s.par) + " thru " + s.played : "No hole finished"}</span></div>
     <div class="stat"><b>${s.firN ? s.firHit + "/" + s.firN : "—"}</b><span>Fairways</span></div>
     <div class="stat"><b>${s.girN ? s.girHit + "/" + s.girN : "—"}</b><span>GIR</span></div>
   </div>`;
@@ -1044,12 +1093,11 @@ function renderOverviewPanel() {
   const clubRows = Object.entries(s.clubs).sort((a, b) => CLUBS.indexOf(a[0]) - CLUBS.indexOf(b[0]))
     .map(([c, ds]) => `<tr><td>${esc(c)}</td><td>${ds.length}</td><td>${avg(ds)}</td><td>${Math.round(Math.max(...ds))}</td></tr>`).join("");
   panel.innerHTML = `
-    ${roundMetaHTML()}
-    <div class="section-h">Round</div>
+    <div class="section-h" style="margin-top:0">Round</div>
     <div class="totals">
       <div class="stat"><b>${s.played ? s.score : "—"}</b><span>${s.played ? fmtDiff(s.score - s.par) + " thru " + s.played : "Score"}</span></div>
       <div class="stat"><b>${s.played ? s.putts : "—"}</b><span>Putts</span></div>
-      <div class="stat"><b>${s.played ? s.pen : "—"}</b><span>Penalties</span></div>
+      <div class="stat"><b>${s.started ? s.pen : "—"}</b><span>Penalties</span></div>
       <div class="stat"><b>${s.firN ? Math.round(100 * s.firHit / s.firN) + "%" : "—"}</b><span>Fairways ${s.firN ? s.firHit + "/" + s.firN : ""}</span></div>
       <div class="stat"><b>${s.girN ? Math.round(100 * s.girHit / s.girN) + "%" : "—"}</b><span>GIR ${s.girN ? s.girHit + "/" + s.girN : ""}</span></div>
       <div class="stat"><b>${avg(s.tee) ?? "—"}</b><span>Avg tee shot (yds)</span></div>
@@ -1064,14 +1112,6 @@ function renderOverviewPanel() {
     <div class="hint" style="margin-top:14px">Tap a hole number on the map or scorecard to open that hole.</div>
     ${saveOk ? "" : '<div class="warn">This browser isn\'t saving rounds (private window?). Use ⋯ → Export before closing.</div>'}
     <div class="foot">Course map © OpenStreetMap contributors · Imagery © Esri. Par per hole from OpenStreetMap — check it against the scorecard.</div>`;
-  bindMeta();
-}
-
-function bindMeta() {
-  const nm = document.getElementById("rName"), dt = document.getElementById("rDate");
-  nm.value = round.name || ""; dt.value = round.date || "";
-  nm.oninput = () => { round.name = nm.value; save(); fillRounds(); };
-  dt.onchange = () => { round.date = dt.value; save(); fillRounds(); };
 }
 
 panel.addEventListener("click", e => {
@@ -1085,16 +1125,23 @@ panel.addEventListener("click", e => {
     toast("Linked. Finished holes now post to the group leaderboard.");
     return;
   }
+  if (t.dataset.del != null) {
+    // The ✕ sits right beside other buttons, so a deleted shot can be put back.
+    const i = +t.dataset.del, n = holeNo, r = round, before = JSON.stringify(d);
+    d.shots.splice(i, 1); save(); render();
+    toast(`Shot ${i + 1} deleted`, { label: "Undo", fn: () => { r.holes[n] = JSON.parse(before); save(); render(); } });
+    return;
+  }
   if (t.dataset.pen != null) { const s = d.shots[+t.dataset.pen]; s.pen = ((s.pen || 0) + 1) % 3; }
-  else if (t.dataset.del != null) { d.shots.splice(+t.dataset.del, 1); }
+  else if (t.dataset.putt != null) {
+    d.putts = t.dataset.putt === "more" ? Math.min(9, Math.max(5, (d.putts || 0) + 1)) : +t.dataset.putt;
+  }
   else switch (t.dataset.act) {
     case "prev": goHole(holeNo - 1); return;
     case "next": goHole(holeNo + 1); return;
+    case "summary": setView("overview"); return;
     case "undo": d.shots.pop(); break;
     case "clear": if (!confirm(`Clear everything on hole ${holeNo}?`)) return; delete round.holes[holeNo]; break;
-    case "putt+": d.putts = d.putts === null ? 1 : Math.min(9, d.putts + 1); break;
-    case "putt-": d.putts = d.putts === null ? 0 : Math.max(0, d.putts - 1); break;
-    case "holed": d.putts = 0; break;
     case "puttclear": d.putts = null; break;
     case "unlink": delete round.group; save(); renderPanel(); toast("Unlinked. Scores already posted stay on the leaderboard."); return;
     default: return;
@@ -1123,6 +1170,9 @@ function render(moveCamera, animate = true) {
 }
 renderPanel();
 window.addEventListener("resize", () => { clearTimeout(window.__rz); window.__rz = setTimeout(() => view === "hole" ? holeCamera(holeNo, false) : overviewCamera(false), 250); });
+
+// Offline support (sw.js): once opened with signal, the page and the tiles you have seen load without it.
+if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register("sw.js").catch(() => {});
 </script>
 </body>
 </html>
